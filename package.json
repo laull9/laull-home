@@ -1,0 +1,34 @@
+{
+  "name": "laull-home",
+  "type": "module",
+  "private": true,
+  "packageManager": "bun@1.4.2",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "build": "bun run --cwd apps/web build && bun run --cwd apps/server build",
+    "typecheck": "bun run --cwd apps/server typecheck && bun run --cwd apps/web typecheck && tsc -p tsconfig.tools.json",
+    "lint": "eslint . --max-warnings 0",
+    "test": "bun test apps/server/tests scripts/tests",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run test:smoke",
+    "db:migrate": "bun apps/server/src/db/migrate.ts",
+    "auth:create": "bun apps/server/src/modules/auth/create-user.ts",
+    "test:smoke": "bun scripts/smoke.ts",
+    "release:verify": "bun scripts/release-policy.ts",
+    "release:pack": "bun scripts/package-release.ts",
+    "hooks:install": "git config --local core.hooksPath .githooks"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "@types/bun": "^1.3.0",
+    "eslint": "^9.39.0",
+    "eslint-plugin-vue": "^10.5.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.48.0",
+    "vue-eslint-parser": "^10.2.0"
+  },
+  "version": "0.0.1"
+}

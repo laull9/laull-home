@@ -1,0 +1,7 @@
+{
+  "name": "@laull-home/shared",
+  "type": "module",
+  "private": true,
+  "exports": {".": "./src/index.ts"},
+  "dependencies": {"@sinclair/typebox": "^0.34.0"}
+}

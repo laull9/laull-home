@@ -1,0 +1,9 @@
+#!/bin/sh
+# 日常提交只允许发生在 dev；main 由 GitHub 合并更新。
+set -eu
+# 未产生首次提交时也能读取当前分支。
+branch=$(git symbolic-ref --quiet --short HEAD || true)
+if [ "$branch" != dev ]; then
+  echo '请切换到 dev 后提交；main 只接收 dev 的合并。' >&2
+  exit 1
+fi

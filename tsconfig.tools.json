@@ -1,0 +1,10 @@
+{
+  "extends": "./apps/server/tsconfig.json",
+  "include": [
+    "scripts/**/*.ts"
+  ],
+  "exclude": [],
+  "compilerOptions": {
+    "moduleDetection": "force"
+  }
+}

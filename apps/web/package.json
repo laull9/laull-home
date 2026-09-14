@@ -1,0 +1,21 @@
+{
+  "name": "@laull-home/web",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "nuxt dev --host 127.0.0.1",
+    "build": "nuxt build",
+    "preview": "nuxt preview",
+    "typecheck": "nuxt typecheck",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@elysiajs/eden": "^1.4.0",
+    "@laull-home/server": "workspace:*",
+    "@laull-home/shared": "workspace:*",
+    "nuxt": "^4.5.2",
+    "vue": "^3.5.42",
+    "vue-router": "^5.3.1"
+  },
+  "devDependencies": {"vue-tsc": "^3.1.0"}
+}

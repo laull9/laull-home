@@ -1,0 +1,36 @@
+# Nuxt dev/build outputs
+.output
+.data
+.nuxt
+.nitro
+.cache
+dist
+
+# Node dependencies
+node_modules
+
+# Logs
+logs
+*.log
+
+# Misc
+.DS_Store
+.fleet
+.idea
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# 私人数据与 SQLite 日志
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# 测试报告
+coverage/
+
+# 发布归档
+release/

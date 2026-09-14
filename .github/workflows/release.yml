@@ -1,0 +1,69 @@
+# 标签事件不携带所属分支信息，发布前显式验证提交已进入 main。
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+# 同一标签串行发布，避免取消已开始上传的版本。
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: 检出标签与完整历史
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: 安装固定 Bun 版本
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+      - name: 校验版本和 main 归属
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bun run release:verify
+      - name: 按锁文件安装依赖
+        run: bun install --frozen-lockfile
+      - name: 重跑发布提交的完整检查
+        run: bun run check
+      - name: 打包运行产物和 SHA-256
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: bun run release:pack
+      - name: 保存经过验证的发布包
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-package
+          path: release/*
+          if-no-files-found: error
+          retention-days: 7
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # 只有发布任务可以写 Release，不检出和执行项目源码。
+    permissions:
+      contents: write
+    steps:
+      - name: 下载本次构建产物
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-package
+          path: release
+      - name: 校验归档
+        working-directory: release
+        run: sha256sum --check ./*.sha256
+      - name: 创建正式版本
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$RELEASE_TAG" release/* \
+            --verify-tag --title "$RELEASE_TAG" \
+            --notes '包含 Nuxt 和 Elysia 运行产物、版本信息及 SHA-256 校验文件。运行要求：Linux x64、Bun 1.4.2。'
