@@ -1,0 +1,10 @@
+# Caddy 自动申请与续期 TLS 证书反向代理配置示例
+home.example.com {
+  encode gzip zstd
+  reverse_proxy laull-home:3000 {
+    header_up Host {host}
+    header_up X-Real-IP {remote_host}
+    header_up X-Forwarded-For {remote_host}
+    header_up X-Forwarded-Proto {scheme}
+  }
+}

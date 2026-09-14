@@ -52,10 +52,10 @@ describe('修改密码与账号恢复', () => {
     }, device1.cookie)
     expect(wrong.status).toBe(401)
 
-    // 新密码过短拒绝。
+    // 新密码少于 5 位被拦截。
     const tooShort = await request('/auth/change-password', 'POST', {
       oldPassword: 'init-password-123',
-      newPassword: 'short',
+      newPassword: 'shrt',
     }, device1.cookie)
     expect(tooShort.status).toBe(400)
 

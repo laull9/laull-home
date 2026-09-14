@@ -1,23 +1,70 @@
 import { Elysia, t } from 'elysia'
 import {
   changePasswordSchema,
+  changeUsernameSchema,
+  createBookmarkGroupSchema,
+  createBookmarkSchema,
+  createSearchEngineSchema,
+  fetchFaviconSchema,
   loginSchema,
   privacySetupSchema,
   privacyUnlockSchema,
+  reorderBookmarkGroupsSchema,
+  reorderBookmarksSchema,
   settingsSchema,
+  updateBookmarkGroupSchema,
+  updateBookmarkSchema,
+  updateSearchEngineSchema,
 } from '@laull-home/shared'
 import type { ServerConfig } from './config'
 import type { AppDatabase } from './db'
 import { schemaMigrations } from './db/schema'
 import { AuthError, createAuthService } from './modules/auth/service'
+import { BookmarkError, createBookmarkService } from './modules/bookmarks/service'
+import { createFaviconService, FaviconError } from './modules/favicon/service'
+import { createSearchService, SearchEngineError } from './modules/search/service'
 import { createSettingsService } from './modules/settings/service'
 import { createSpacesService } from './modules/spaces/service'
+
+// 检查请求来源是否属于受信任的站点或本地开发环境。
+export function isTrustedOrigin(originHeader: string | null | undefined, refererHeader: string | null | undefined, configOrigin: string): boolean {
+  let source = originHeader
+  if (!source && refererHeader) {
+    try {
+      source = new URL(refererHeader).origin
+    } catch {
+      // 忽略格式错误的 Referer。
+    }
+  }
+  // 缺失来源头在内部代理或同源安全场景下放行，跨站攻击必定携带 Origin。
+  if (!source) return true
+  // 与明确配置的来源完全一致。
+  if (source === configOrigin) return true
+
+  // 本地回环地址兼容（localhost 与 127.0.0.1 互通）：
+  try {
+    const configuredUrl = new URL(configOrigin)
+    const requestUrl = new URL(source)
+    const isLoopbackConfig = ['localhost', '127.0.0.1'].includes(configuredUrl.hostname)
+    const isLoopbackRequest = ['localhost', '127.0.0.1'].includes(requestUrl.hostname)
+    if (isLoopbackConfig && isLoopbackRequest && configuredUrl.port === requestUrl.port && configuredUrl.protocol === requestUrl.protocol) {
+      return true
+    }
+  } catch {
+    return false
+  }
+
+  return false
+}
 
 // 创建应用但不监听端口，便于测试与类型导出。
 export function createApp(db: AppDatabase, config: ServerConfig) {
   const auth = createAuthService(db, config)
   const settings = createSettingsService(db)
   const spaces = createSpacesService(db)
+  const bookmarksService = createBookmarkService(db)
+  const searchService = createSearchService(db)
+  const faviconService = createFaviconService(config.dataDir)
   const cookieOptions = {
     // 限制 Cookie 只能由 HTTP 读取。
     httpOnly: true,
@@ -33,8 +80,12 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       set.headers['cache-control'] = 'no-store'
       set.headers['x-content-type-options'] = 'nosniff'
       set.headers['x-robots-tag'] = 'noindex, nofollow'
-      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method) && request.headers.get('origin') !== config.origin) {
-        return status(403, { code: 'FORBIDDEN_ORIGIN', message: '请求来源不受信任' })
+      if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+        const origin = request.headers.get('origin')
+        const referer = request.headers.get('referer')
+        if (!isTrustedOrigin(origin, referer, config.origin)) {
+          return status(403, { code: 'FORBIDDEN_ORIGIN', message: '请求来源不受信任' })
+        }
       }
     })
     .onError(({ code, error, status }) => {
@@ -44,9 +95,16 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
         if (error.status === 409) return status(409, body)
         return status(429, body)
       }
-      const body = { code: 'REQUEST_ERROR', message: '请求路径或参数不正确' }
-      if (code === 'VALIDATION' || code === 'PARSE') return status(400, body)
-      if (code === 'NOT_FOUND') return status(404, body)
+      if (error instanceof BookmarkError || error instanceof SearchEngineError || error instanceof FaviconError) {
+        return status(error.status, { code: 'BUSINESS_ERROR', message: error.message })
+      }
+      if (code === 'VALIDATION') {
+        const firstError = (error as { all?: Array<{ summary?: string; message?: string }> }).all?.[0]
+        const validationMessage = firstError?.summary ?? firstError?.message ?? '请求参数不正确'
+        return status(400, { code: 'REQUEST_ERROR', message: validationMessage })
+      }
+      if (code === 'PARSE') return status(400, { code: 'REQUEST_ERROR', message: '请求数据格式不正确' })
+      if (code === 'NOT_FOUND') return status(404, { code: 'REQUEST_ERROR', message: '请求路径不存在' })
       return status(500, { code: 'INTERNAL_ERROR', message: '服务暂时不可用' })
     })
     .get('/health', () => {
@@ -61,19 +119,55 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       cookie.lh_session!.set({ ...cookieOptions, value: result.token, expires: new Date(result.expiresAt) })
       return { user: result.user }
     }, { body: loginSchema })
+    .get('/search/engines', () => {
+      return { engines: searchService.list() }
+    })
+    .get('/icons/:filename', ({ params, set, status }) => {
+      const icon = faviconService.getIcon(params.filename)
+      if (!icon) return status(404, { code: 'NOT_FOUND', message: '图标不存在' })
+      set.headers['content-type'] = icon.contentType
+      set.headers['cache-control'] = 'public, max-age=604800, immutable'
+      return icon.buffer
+    }, { params: t.Object({ filename: t.String() }) })
+    .get('/bookmarks/groups', ({ query, cookie, status }) => {
+      const spaceId = query.spaceId ?? 'default'
+      const sessionToken = cookie.lh_session?.value
+      const user = typeof sessionToken === 'string' ? auth.authenticate(sessionToken) : null
+      const isVisitor = !user
+      const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
+      const isUnlocked = user ? spaces.verifyAccess(user.id, spaceId, spaceToken) : false
+      if (spaceId === 'privacy' && isVisitor) return status(401, { code: 'UNAUTHORIZED', message: '请先登录' })
+      if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
+      return { groups: bookmarksService.listGroups(spaceId, isUnlocked, isVisitor) }
+    }, { query: t.Object({ spaceId: t.Optional(t.String()) }) })
+    .get('/bookmarks', ({ query, cookie, status }) => {
+      const spaceId = query.spaceId ?? 'default'
+      const sessionToken = cookie.lh_session?.value
+      const user = typeof sessionToken === 'string' ? auth.authenticate(sessionToken) : null
+      const isVisitor = !user
+      const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
+      const isUnlocked = user ? spaces.verifyAccess(user.id, spaceId, spaceToken) : false
+      if (spaceId === 'privacy' && isVisitor) return status(401, { code: 'UNAUTHORIZED', message: '请先登录' })
+      if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
+      return { bookmarks: bookmarksService.listBookmarks(spaceId, isUnlocked, isVisitor, query.groupId) }
+    }, { query: t.Object({ spaceId: t.Optional(t.String()), groupId: t.Optional(t.String()) }) })
     .resolve(({ cookie, status }) => {
       const token = cookie.lh_session!.value
       const user = auth.authenticate(token)
       if (!user) return status(401, { code: 'UNAUTHORIZED', message: '请先登录' })
-      return { user, sessionToken: token as string }
+      const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
+      return { user, sessionToken: token as string, spaceToken }
     })
-    .get('/auth/me', ({ user }) => ({ user }))
+    .get('/auth/me', async ({ user }) => {
+      const isDefaultPassword = await Bun.password.verify('admin', user.passwordHash)
+      return { user: { id: user.id, username: user.username, isDefaultPassword } }
+    })
     .post('/auth/logout', ({ sessionToken, cookie }) => {
       auth.logout(sessionToken)
       cookie.lh_session!.set({ ...cookieOptions, value: '', maxAge: 0, expires: new Date(0) })
       if (typeof cookie.lh_space_session?.value === 'string') {
         spaces.lock(cookie.lh_space_session.value)
-        cookie.lh_space_session.set({ ...cookieOptions, value: '', maxAge: 0, expires: new Date(0) })
+        cookie.lh_space_session!.set({ ...cookieOptions, value: '', maxAge: 0, expires: new Date(0) })
       }
       return { success: true }
     })
@@ -83,6 +177,9 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       cookie.lh_session!.set({ ...cookieOptions, value: result.token, expires: new Date(result.expiresAt) })
       return { success: true }
     }, { body: changePasswordSchema })
+    .post('/auth/change-username', async ({ user, body }) => {
+      return auth.changeUsername(user.id, body.newUsername)
+    }, { body: changeUsernameSchema })
     .get('/auth/sessions', ({ user, sessionToken }) => {
       return { sessions: auth.listSessions(user.id, sessionToken) }
     })
@@ -99,8 +196,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       const result = settings.update(user.id, body)
       return result ?? status(409, { code: 'REVISION_CONFLICT', message: '设置已在其他设备更新，请重新读取' })
     }, { body: settingsSchema })
-    .get('/spaces', ({ user, cookie }) => {
-      const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
+    .get('/spaces', ({ user, spaceToken }) => {
       return { spaces: spaces.list(user.id, spaceToken) }
     })
     .post('/spaces/privacy/setup', async ({ user, body }) => {
@@ -119,6 +215,57 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       cookie.lh_space_session!.set({ ...cookieOptions, value: '', maxAge: 0, expires: new Date(0) })
       return { success: true }
     })
+    .post('/bookmarks/groups', ({ user, body, spaceToken }) => {
+      const isUnlocked = spaces.verifyAccess(user.id, body.spaceId, spaceToken)
+      return { group: bookmarksService.createGroup(body, isUnlocked) }
+    }, { body: createBookmarkGroupSchema })
+    .put('/bookmarks/groups/:id', ({ user, params, body, spaceToken }) => {
+      const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
+      return { group: bookmarksService.updateGroup(params.id, body, isUnlocked) }
+    }, { params: t.Object({ id: t.String() }), body: updateBookmarkGroupSchema })
+    .delete('/bookmarks/groups/:id', ({ user, params, spaceToken }) => {
+      const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
+      bookmarksService.deleteGroup(params.id, isUnlocked)
+      return { success: true }
+    }, { params: t.Object({ id: t.String() }) })
+    .post('/bookmarks/groups/reorder', ({ user, query, body, spaceToken }) => {
+      const spaceId = query.spaceId ?? 'default'
+      const isUnlocked = spaces.verifyAccess(user.id, spaceId, spaceToken)
+      bookmarksService.reorderGroups(spaceId, body, isUnlocked)
+      return { success: true }
+    }, { query: t.Object({ spaceId: t.Optional(t.String()) }), body: reorderBookmarkGroupsSchema })
+    .post('/bookmarks', ({ user, body, spaceToken }) => {
+      const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
+      return { bookmark: bookmarksService.createBookmark(body, isUnlocked) }
+    }, { body: createBookmarkSchema })
+    .put('/bookmarks/:id', ({ user, params, body, spaceToken }) => {
+      const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
+      return { bookmark: bookmarksService.updateBookmark(params.id, body, isUnlocked) }
+    }, { params: t.Object({ id: t.String() }), body: updateBookmarkSchema })
+    .delete('/bookmarks/:id', ({ user, params, spaceToken }) => {
+      const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
+      bookmarksService.deleteBookmark(params.id, isUnlocked)
+      return { success: true }
+    }, { params: t.Object({ id: t.String() }) })
+    .post('/bookmarks/reorder', ({ user, body, spaceToken }) => {
+      const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
+      bookmarksService.reorderBookmarks(body, isUnlocked)
+      return { success: true }
+    }, { body: reorderBookmarksSchema })
+    .post('/search/engines', ({ body }) => {
+      return { engine: searchService.create(body) }
+    }, { body: createSearchEngineSchema })
+    .put('/search/engines/:id', ({ params, body }) => {
+      return { engine: searchService.update(params.id, body) }
+    }, { params: t.Object({ id: t.String() }), body: updateSearchEngineSchema })
+    .delete('/search/engines/:id', ({ params }) => {
+      searchService.delete(params.id)
+      return { success: true }
+    }, { params: t.Object({ id: t.String() }) })
+    .post('/favicon/fetch', async ({ body }) => {
+      const iconUrl = await faviconService.fetchAndCache(body.url)
+      return { iconUrl }
+    }, { body: fetchFaviconSchema })
 }
 
 // 前端只导入此类型，禁止引入后端运行时代码。

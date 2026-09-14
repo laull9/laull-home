@@ -14,10 +14,20 @@ export function hashToken(token: string): string {
   return new Bun.CryptoHasher('sha256').update(token).digest('hex')
 }
 
+// 检查并在账号未初始化时自动创建初始管理员与默认密码。
+export async function ensureInitialUser(db: AppDatabase): Promise<{ created: boolean; username?: string; password?: string }> {
+  const existing = db.select({ id: users.id }).from(users).get()
+  if (existing) return { created: false }
+  const username = 'admin'
+  const password = 'admin'
+  await createUser(db, username, password)
+  return { created: true, username, password }
+}
+
 // 通过本地命令初始化唯一账号，不提供公网注册入口。
 export async function createUser(db: AppDatabase, username: string, password: string): Promise<void> {
-  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(username) || password.length < 12 || password.length > 128) {
-    throw new Error('用户名需为 1 至 64 位字母、数字、下划线或连字符，密码需为 12 至 128 位')
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(username) || password.length < 5 || password.length > 128) {
+    throw new Error('用户名需为 1 至 64 位字母、数字、下划线或连字符，密码需为 5 至 128 位')
   }
   const existing = db.select({ id: users.id }).from(users).get()
   if (existing) throw new AuthError(409, '账号已初始化')
@@ -98,12 +108,13 @@ export function createAuthService(db: AppDatabase, config: ServerConfig) {
           userAgent,
         }).run()
       })
-      return { token, sessionId, expiresAt, user: { id: user.id, username: user.username } }
+      const isDefaultPassword = await Bun.password.verify('admin', user.passwordHash)
+      return { token, sessionId, expiresAt, user: { id: user.id, username: user.username, isDefaultPassword } }
     },
     // 修改密码并撤销所有旧会话，重新生成当前设备会话。
     async changePassword(userId: number, oldPassword: string, newPassword: string, userAgent = '') {
-      if (newPassword.length < 12 || newPassword.length > 128) {
-        throw new AuthError(401, '新密码需为 12 至 128 位')
+      if (newPassword.length < 5 || newPassword.length > 128) {
+        throw new AuthError(401, '新密码需为 5 至 128 位')
       }
       const user = db.select().from(users).where(eq(users.id, userId)).get()
       if (!user) throw new AuthError(401, '用户不存在')
@@ -127,6 +138,18 @@ export function createAuthService(db: AppDatabase, config: ServerConfig) {
         }).run()
       })
       return { token, sessionId, expiresAt }
+    },
+    // 修改当前用户的用户名并防止重名。
+    async changeUsername(userId: number, newUsername: string) {
+      if (!/^[a-zA-Z0-9_-]{1,64}$/.test(newUsername)) {
+        throw new AuthError(401, '用户名需为 1 至 64 位字母、数字、下划线或连字符')
+      }
+      const existing = db.select({ id: users.id }).from(users).where(and(eq(users.username, newUsername), ne(users.id, userId))).get()
+      if (existing) {
+        throw new AuthError(409, '用户名已被占用')
+      }
+      db.update(users).set({ username: newUsername }).where(eq(users.id, userId)).run()
+      return { success: true, username: newUsername }
     },
     // 获取当前用户的所有活动会话列表。
     listSessions(userId: number, currentToken: string) {
@@ -153,6 +176,7 @@ export function createAuthService(db: AppDatabase, config: ServerConfig) {
       const row = db.select({
         id: users.id,
         username: users.username,
+        passwordHash: users.passwordHash,
       }).from(sessions).innerJoin(users, eq(users.id, sessions.userId)).where(
         and(eq(sessions.tokenHash, hashToken(token)), gt(sessions.expiresAt, Date.now())),
       ).get()

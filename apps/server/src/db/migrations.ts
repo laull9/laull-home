@@ -66,4 +66,67 @@ export const migrations = [{
     INSERT OR IGNORE INTO spaces (id, user_id, name, type, is_default, created_at, updated_at)
       SELECT 'privacy', id, '隐私空间', 'privacy', 0, created_at, created_at FROM users WHERE id = 1;
   `,
+}, {
+  // 迁移版本 3：引入书签与分组、搜索引擎体系，扩展主题与壁纸字段。
+  version: 3,
+  // 建立书签与搜索相关表结构，预填常用引擎与默认分组。
+  sql: `
+    ALTER TABLE user_settings ADD COLUMN theme_id TEXT NOT NULL DEFAULT 'default';
+    ALTER TABLE user_settings ADD COLUMN wallpaper_type TEXT NOT NULL DEFAULT 'none';
+    ALTER TABLE user_settings ADD COLUMN wallpaper_value TEXT NOT NULL DEFAULT '';
+    CREATE TABLE bookmark_groups (
+      id TEXT PRIMARY KEY,
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_public INTEGER NOT NULL DEFAULT 1 CHECK (is_public IN (0, 1)),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX idx_bookmark_groups_space ON bookmark_groups(space_id);
+    CREATE TABLE bookmarks (
+      id TEXT PRIMARY KEY,
+      group_id TEXT NOT NULL REFERENCES bookmark_groups(id) ON DELETE CASCADE,
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      url TEXT NOT NULL,
+      icon_url TEXT NOT NULL DEFAULT '',
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      is_public INTEGER NOT NULL DEFAULT 1 CHECK (is_public IN (0, 1)),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX idx_bookmarks_group ON bookmarks(group_id);
+    CREATE INDEX idx_bookmarks_space ON bookmarks(space_id);
+    CREATE TABLE search_engines (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      url_template TEXT NOT NULL,
+      bang TEXT NOT NULL DEFAULT '',
+      is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX idx_search_engines_bang ON search_engines(bang);
+    INSERT OR IGNORE INTO search_engines (id, name, url_template, bang, is_default, sort_order, created_at, updated_at) VALUES
+      ('google', 'Google', 'https://www.google.com/search?q=%s', 'g', 1, 1, 0, 0),
+      ('bing', 'Bing', 'https://www.bing.com/search?q=%s', 'b', 0, 2, 0, 0),
+      ('duckduckgo', 'DuckDuckGo', 'https://duckduckgo.com/?q=%s', 'ddg', 0, 3, 0, 0),
+      ('github', 'GitHub', 'https://github.com/search?q=%s', 'gh', 0, 4, 0, 0),
+      ('youtube', 'YouTube', 'https://www.youtube.com/results?search_query=%s', 'yt', 0, 5, 0, 0);
+    INSERT OR IGNORE INTO bookmark_groups (id, space_id, name, sort_order, is_public, created_at, updated_at) VALUES
+      ('group-default', 'default', '常用推荐', 0, 1, 0, 0);
+    INSERT OR IGNORE INTO bookmarks (id, group_id, space_id, title, url, icon_url, sort_order, is_public, created_at, updated_at) VALUES
+      ('bm-github', 'group-default', 'default', 'GitHub', 'https://github.com', '', 0, 1, 0, 0),
+      ('bm-mdn', 'group-default', 'default', 'MDN', 'https://developer.mozilla.org', '', 1, 1, 0, 0),
+      ('bm-v2ex', 'group-default', 'default', 'V2EX', 'https://www.v2ex.com', '', 2, 1, 0, 0);
+  `,
+}, {
+  // 迁移版本 4：在用户设置中增加自定义 CSS 覆盖字段。
+  version: 4,
+  // 增加 custom_css 列。
+  sql: `
+    ALTER TABLE user_settings ADD COLUMN custom_css TEXT NOT NULL DEFAULT '';
+  `,
 }]

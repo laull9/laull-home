@@ -43,6 +43,14 @@ export const userSettings = sqliteTable('user_settings', {
   title: text('title').notNull().default('我的主页'),
   // 外观模式：system、light、dark。
   appearance: text('appearance').notNull().default('system'),
+  // 预设主题标识。
+  themeId: text('theme_id').notNull().default('default'),
+  // 壁纸类型：none、color、gradient、url。
+  wallpaperType: text('wallpaper_type').notNull().default('none'),
+  // 壁纸具体参数。
+  wallpaperValue: text('wallpaper_value').notNull().default(''),
+  // 自定义 CSS 覆盖样式规则。
+  customCss: text('custom_css').notNull().default(''),
   // 更新时间戳。
   updatedAt: integer('updated_at').notNull(),
 })
@@ -114,3 +122,77 @@ export const schemaMigrations = sqliteTable('schema_migrations', {
   // 迁移执行时间戳。
   appliedAt: integer('applied_at').notNull(),
 })
+
+// 书签分组表定义。
+export const bookmarkGroups = sqliteTable('bookmark_groups', {
+  // 分组唯一标识。
+  id: text('id').primaryKey(),
+  // 所属空间标识。
+  spaceId: text('space_id').notNull().references(() => spaces.id, { onDelete: 'cascade' }),
+  // 分组展示名称。
+  name: text('name').notNull(),
+  // 组间排序权重。
+  sortOrder: integer('sort_order').notNull().default(0),
+  // 访客模式下是否可见。
+  isPublic: integer('is_public').notNull().default(1),
+  // 创建时间戳。
+  createdAt: integer('created_at').notNull(),
+  // 更新时间戳。
+  updatedAt: integer('updated_at').notNull(),
+}, table => [
+  // 按所属空间索引分组。
+  index('idx_bookmark_groups_space').on(table.spaceId),
+])
+
+// 书签表定义。
+export const bookmarks = sqliteTable('bookmarks', {
+  // 书签唯一标识。
+  id: text('id').primaryKey(),
+  // 所属分组标识。
+  groupId: text('group_id').notNull().references(() => bookmarkGroups.id, { onDelete: 'cascade' }),
+  // 所属空间标识。
+  spaceId: text('space_id').notNull().references(() => spaces.id, { onDelete: 'cascade' }),
+  // 书签展示标题。
+  title: text('title').notNull(),
+  // 目标访问地址。
+  url: text('url').notNull(),
+  // 图标访问地址或本地缓存相对路径。
+  iconUrl: text('icon_url').notNull().default(''),
+  // 组内排序权重。
+  sortOrder: integer('sort_order').notNull().default(0),
+  // 访客模式下是否可见。
+  isPublic: integer('is_public').notNull().default(1),
+  // 创建时间戳。
+  createdAt: integer('created_at').notNull(),
+  // 更新时间戳。
+  updatedAt: integer('updated_at').notNull(),
+}, table => [
+  // 按所属分组索引书签。
+  index('idx_bookmarks_group').on(table.groupId),
+  // 按所属空间索引书签。
+  index('idx_bookmarks_space').on(table.spaceId),
+])
+
+// 搜索引擎表定义。
+export const searchEngines = sqliteTable('search_engines', {
+  // 搜索引擎唯一标识。
+  id: text('id').primaryKey(),
+  // 引擎展示名称。
+  name: text('name').notNull(),
+  // 搜索查询地址模板，包含 %s。
+  urlTemplate: text('url_template').notNull(),
+  // 快捷 Bang 语法缩写。
+  bang: text('bang').notNull().default(''),
+  // 是否为默认搜索引擎。
+  isDefault: integer('is_default').notNull().default(0),
+  // 排序权重。
+  sortOrder: integer('sort_order').notNull().default(0),
+  // 创建时间戳。
+  createdAt: integer('created_at').notNull(),
+  // 更新时间戳。
+  updatedAt: integer('updated_at').notNull(),
+}, table => [
+  // 按 Bang 指令建立快速索引。
+  index('idx_search_engines_bang').on(table.bang),
+])
+

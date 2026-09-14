@@ -1,6 +1,6 @@
 // 用户身份状态按 SSR 请求隔离，客户端沿用 Nuxt 状态。
 export function useAuth() {
-  const user = useState<{ id: number; username: string } | null>('auth:user', () => null)
+  const user = useState<{ id: number; username: string; isDefaultPassword?: boolean } | null>('auth:user', () => null)
   const { $api } = useNuxtApp()
 
   // SSR 与客户端均可刷新当前身份，服务异常不伪装成未登录。
@@ -35,6 +35,14 @@ export function useAuth() {
     await refresh()
   }
 
+  // 修改当前用户名并更新本地状态。
+  async function changeUsername(newUsername: string) {
+    if (import.meta.server) throw new Error('修改用户名需要在浏览器执行')
+    const result = await $api.auth['change-username'].post({ newUsername })
+    if (result.error) throw new Error(result.error.value?.message ?? '修改用户名失败')
+    await refresh()
+  }
+
   // 获取活动会话列表。
   async function fetchSessions() {
     const result = await $api.auth.sessions.get()
@@ -62,6 +70,7 @@ export function useAuth() {
     login,
     logout,
     changePassword,
+    changeUsername,
     fetchSessions,
     revokeSession,
     revokeOthers,

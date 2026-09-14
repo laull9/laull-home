@@ -38,7 +38,7 @@ export function createSpacesService(db: AppDatabase) {
     },
     // 为隐私空间设置或更新独立密码。
     async setupPassword(userId: number, spaceId: string, password: string): Promise<void> {
-      if (password.length < 12 || password.length > 128) throw new AuthError(401, '独立隐私密码需为 12 至 128 位')
+      if (password.length < 5 || password.length > 128) throw new AuthError(401, '独立隐私密码需为 5 至 128 位')
       const space = db.select().from(spaces).where(and(eq(spaces.id, spaceId), eq(spaces.userId, userId))).get()
       if (!space || space.type !== 'privacy') throw new AuthError(401, '目标隐私空间不存在')
       const passwordHash = await Bun.password.hash(password, { algorithm: 'argon2id', memoryCost: 65536, timeCost: 3 })

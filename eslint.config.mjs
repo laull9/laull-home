@@ -19,13 +19,15 @@ export default ts.config(
     files: ['**/*.{ts,mjs,vue}'],
     languageOptions: {
       globals: Object.fromEntries([
-        'process', 'Bun', 'console', 'crypto', 'URL', 'window',
+        'process', 'Bun', 'console', 'crypto', 'URL', 'window', 'document',
+        'HTMLElement', 'MouseEvent', 'KeyboardEvent', 'Node', 'onUnmounted',
         'defineNuxtConfig', 'defineNuxtPlugin', 'defineEventHandler',
         'useRuntimeConfig', 'getRequestURL', 'createError', 'proxyRequest',
         'useRequestHeaders', 'useState', 'useNuxtApp', 'readonly', 'Response',
         'fetch', 'AbortSignal', 'ref', 'computed', 'onMounted', 'useRouter',
         'useRoute', 'definePageMeta', 'navigateTo', 'defineNuxtRouteMiddleware',
-        'useAuth', 'useSpaces',
+        'useAuth', 'useSpaces', 'useBookmarks', 'useSearch', 'useTheme',
+        'watch', 'confirm',
       ].map(name => [name, 'readonly'])),
     },
   },

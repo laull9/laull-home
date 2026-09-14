@@ -1,0 +1,20 @@
+services:
+  laull-home:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: laull-home:v0.1.0
+    container_name: laull-home
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - LAULL_HOME_ORIGIN=${LAULL_HOME_ORIGIN:-http://localhost:3000}
+      - LAULL_HOME_SESSION_DAYS=90
+    volumes:
+      - laull_data:/app/data
+
+volumes:
+  laull_data:
+    driver: local

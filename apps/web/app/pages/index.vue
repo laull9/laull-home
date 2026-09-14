@@ -1,32 +1,68 @@
 <script setup lang="ts">
-const router = useRouter()
+import type { Bookmark, BookmarkGroup } from "@laull-home/shared"
+
+// 启用身份鉴权守卫，未登录直接进入独立登录页面。
+definePageMeta({
+  middleware: 'auth',
+})
+
 const { user, refresh, logout } = useAuth()
 const { spaces, activeSpaceId, fetchSpaces, unlockPrivacySpace, lockPrivacySpace } = useSpaces()
+const { groups, bookmarks, loadData, createGroup, updateGroup, deleteGroup, deleteBookmark } = useBookmarks()
 const { $api } = useNuxtApp()
+const { applyTheme } = useTheme()
 
 // 主页标题。
-const pageTitle = ref('我的主页')
-// 隐私空间解锁密码。
-const privacyInputPassword = ref('')
-// 隐私解锁错误提示。
-const unlockError = ref('')
+const pageTitle = ref("我的主页")
 
-// 页面加载时恢复状态。
+// 编辑模式开关状态。
+const isEditMode = ref(false)
+
+// 书签弹窗控制。
+const showBookmarkModal = ref(false)
+const editingBookmark = ref<Bookmark | null>(null)
+
+// 隐私空间密码与错误信息。
+const privacyInputPassword = ref("")
+const unlockError = ref("")
+
+// 分组新建与重命名状态。
+const showGroupPrompt = ref(false)
+const groupPromptTitle = ref("")
+const groupPromptValue = ref("")
+const editingGroupId = ref<string | null>(null)
+
+// 页面加载恢复状态并获取数据。
 onMounted(async () => {
   try {
     await refresh()
   } catch {
-    // 访客状态。
+    // 忽略异常
   }
+
+  try {
+    const res = await $api.settings.get()
+    if (res.data) {
+      pageTitle.value = res.data.title
+      applyTheme(res.data)
+    }
+  } catch {
+    // 访客读取失败保持默认
+  }
+
   if (user.value) {
     try {
       await fetchSpaces()
-      const settingsResult = await $api.settings.get()
-      if (settingsResult.data) pageTitle.value = settingsResult.data.title
     } catch {
-      // 容错处理。
+      // 容错处理
     }
   }
+  await loadData(activeSpaceId.value)
+})
+
+// 监听活动空间变更，重新加载分组与书签。
+watch(activeSpaceId, async (newSpaceId) => {
+  await loadData(newSpaceId)
 })
 
 // 当前选中的空间对象。
@@ -34,301 +70,374 @@ const currentSpace = computed(() => {
   return spaces.value.find(s => s.id === activeSpaceId.value)
 })
 
-// 处理登出。
+// 打开新增书签对话框。
+function handleAddBookmark() {
+  if (groups.value.length === 0) {
+    openCreateGroupModal()
+    return
+  }
+  editingBookmark.value = null
+  showBookmarkModal.value = true
+}
+
+// 打开编辑书签对话框。
+function handleEditBookmark(bm: Bookmark) {
+  editingBookmark.value = bm
+  showBookmarkModal.value = true
+}
+
+// 删除指定书签。
+async function handleDeleteBookmark(bm: Bookmark) {
+  if (confirm("确认删除书签「" + bm.title + "」？")) {
+    await deleteBookmark(bm.id, activeSpaceId.value)
+  }
+}
+
+// 打开新建分组对话框。
+function openCreateGroupModal() {
+  editingGroupId.value = null
+  groupPromptTitle.value = "新建分组"
+  groupPromptValue.value = ""
+  showGroupPrompt.value = true
+}
+
+// 打开编辑分组对话框。
+function openEditGroupModal(group: BookmarkGroup) {
+  editingGroupId.value = group.id
+  groupPromptTitle.value = "重命名分组"
+  groupPromptValue.value = group.name
+  showGroupPrompt.value = true
+}
+
+// 提交分组保存。
+async function handleSaveGroup(name?: string) {
+  const groupName = (name ?? groupPromptValue.value).trim()
+  if (!groupName) return
+  if (editingGroupId.value) {
+    await updateGroup(editingGroupId.value, activeSpaceId.value, { name: groupName })
+  } else {
+    await createGroup({ spaceId: activeSpaceId.value, name: groupName })
+  }
+  showGroupPrompt.value = false
+}
+
+// 删除指定分组。
+async function handleDeleteGroup(group: BookmarkGroup) {
+  if (confirm("确认删除分组「" + group.name + "」及其下所有书签？")) {
+    await deleteGroup(group.id, activeSpaceId.value)
+  }
+}
+
+// 处理用户登出，跳转独立登录页面。
 async function handleLogout() {
   await logout()
-  activeSpaceId.value = 'default'
-  router.push('/')
+  await navigateTo('/login')
 }
 
 // 处理隐私空间解锁。
 async function handleUnlock() {
-  unlockError.value = ''
+  unlockError.value = ""
   try {
     await unlockPrivacySpace(privacyInputPassword.value)
-    privacyInputPassword.value = ''
+    privacyInputPassword.value = ""
+    await loadData("privacy")
   } catch (err: unknown) {
-    unlockError.value = err instanceof Error ? err.message : '解锁失败'
+    unlockError.value = err instanceof Error ? err.message : "解锁失败"
   }
 }
 
-// 处理锁定隐私空间。
+// 处理隐私空间锁定。
 async function handleLock() {
   await lockPrivacySpace()
+  await loadData("default")
 }
 </script>
 
 <template>
-  <div class="home-container">
-    <header class="navbar">
-      <div class="brand">
-        {{ pageTitle }}
-      </div>
+  <div class="home-layout">
+    <!-- 初始密码未修改安全提醒 -->
+    <div v-if="user?.isDefaultPassword" class="default-password-banner">
+      <span>安全提醒：当前正在使用默认初始密码（admin），请及时修改。</span>
+      <NuxtLink to="/settings" class="banner-link">前往修改</NuxtLink>
+    </div>
 
-      <nav v-if="user" class="space-tabs">
-        <button
-          v-for="space in spaces"
-          :key="space.id"
-          type="button"
-          class="tab-button"
-          :class="{ active: activeSpaceId === space.id }"
-          @click="activeSpaceId = space.id"
-        >
-          {{ space.name }}
-          <span v-if="space.type === 'privacy'" class="lock-indicator">
-            {{ space.isUnlocked ? '已解锁' : '已锁定' }}
-          </span>
-        </button>
-      </nav>
-
-      <div class="user-actions">
-        <template v-if="user">
-          <span class="user-name">{{ user.username }}</span>
-          <NuxtLink to="/settings" class="nav-link">
-            设置
-          </NuxtLink>
-          <button type="button" class="btn-text" @click="handleLogout">
-            退出
-          </button>
-        </template>
-        <template v-else>
-          <NuxtLink to="/login" class="nav-link">
-            登录
-          </NuxtLink>
-        </template>
-      </div>
-    </header>
-
-    <main class="main-content">
-      <div v-if="activeSpaceId === 'privacy' && user" class="privacy-section">
-        <div v-if="!currentSpace?.isUnlocked" class="unlock-card">
-          <h2>隐私空间已受保护</h2>
-          <div v-if="currentSpace?.hasPassword" class="unlock-form">
-            <input
-              v-model="privacyInputPassword"
-              type="password"
-              placeholder="请输入独立隐私密码"
-              @keyup.enter="handleUnlock"
-            >
-            <p v-if="unlockError" class="error-text">
-              {{ unlockError }}
-            </p>
-            <button type="button" class="btn-primary" @click="handleUnlock">
-              解锁空间
-            </button>
-          </div>
-          <div v-else class="setup-hint">
-            <p>尚未设置独立隐私密码</p>
-            <NuxtLink to="/settings" class="btn-primary">
-              前往设置初始化密码
-            </NuxtLink>
-          </div>
+    <!-- 编辑模式生效时的顶部操作提示栏 -->
+    <transition name="fade">
+      <div v-if="isEditMode && user" class="edit-mode-bar">
+        <div class="edit-status">
+          <span class="edit-dot" />
+          <span>正在编辑主页</span>
         </div>
-        <div v-else class="privacy-unlocked-content">
-          <div class="space-bar">
-            <span>当前处于隐私空间（临时授权中）</span>
-            <button type="button" class="btn-lock" @click="handleLock">
-              锁定并返回
-            </button>
-          </div>
-          <div class="content-body">
-            <p>隐私空间已解锁，数据受独立授权与隔离保护。</p>
-          </div>
+        <div class="edit-actions">
+          <button type="button" class="btn-sub" @click="openCreateGroupModal">新建分组</button>
+          <button type="button" class="btn-sub" @click="handleAddBookmark">+ 添加书签</button>
+          <button type="button" class="btn-accent" @click="isEditMode = false">完成编辑</button>
         </div>
       </div>
+    </transition>
 
-      <div v-else class="normal-section">
-        <div class="welcome-banner">
-          <h1>{{ pageTitle }}</h1>
-          <p class="subtitle">
-            {{ user ? '已登录个人主页' : '公开主页（访客模式）' }}
-          </p>
+    <main class="main-body">
+      <!-- 隐私空间锁定保护提示 -->
+      <section v-if="activeSpaceId === 'privacy' && user && !currentSpace?.isUnlocked" class="privacy-lock-card">
+        <h2>隐私空间已受保护</h2>
+        <div v-if="currentSpace?.hasPassword" class="lock-form">
+          <input
+            v-model="privacyInputPassword"
+            type="password"
+            placeholder="请输入独立隐私密码"
+            @keyup.enter="handleUnlock"
+          >
+          <p v-if="unlockError" class="error-msg">{{ unlockError }}</p>
+          <button type="button" class="btn-accent" @click="handleUnlock">解锁空间</button>
+        </div>
+        <div v-else class="setup-hint">
+          <p>尚未初始化独立隐私密码</p>
+          <NuxtLink to="/settings" class="btn-accent">前往设置</NuxtLink>
+        </div>
+      </section>
+
+      <!-- 普通主页或已解锁的隐私空间 -->
+      <section v-else class="content-section">
+        <div v-if="activeSpaceId === 'privacy' && user" class="privacy-alert-bar">
+          <span>当前处于隐私空间（临时授权中）</span>
+          <button type="button" class="btn-lock" @click="handleLock">锁定并返回</button>
         </div>
 
-        <section class="quick-search">
-          <div class="search-box">
-            <input type="text" placeholder="输入搜索内容或网址...">
-          </div>
-        </section>
+        <!-- 居中美化搜索栏组件 -->
+        <QuickSearch />
 
-        <section class="bookmarks-placeholder">
-          <p class="placeholder-text">
-            {{ user ? '书签功能将在 v0.1 实装' : '未登录访客仅展示公开内容' }}
-          </p>
-        </section>
-      </div>
+        <!-- 书签分组与卡片网格组件 -->
+        <BookmarkGroupSection
+          :groups="groups"
+          :bookmarks="bookmarks"
+          :is-edit-mode="isEditMode"
+          :is-visitor="!user"
+          @edit-bookmark="handleEditBookmark"
+          @delete-bookmark="handleDeleteBookmark"
+          @create-group="openCreateGroupModal"
+          @edit-group="openEditGroupModal"
+          @delete-group="handleDeleteGroup"
+          @add-bookmark="handleAddBookmark"
+        />
+      </section>
     </main>
+
+    <!-- 右下角收纳悬浮操作菜单 -->
+    <FloatingNav
+      :user="user"
+      :spaces="spaces"
+      :active-space-id="activeSpaceId"
+      :is-edit-mode="isEditMode"
+      @toggle-edit-mode="isEditMode = !isEditMode"
+      @select-space="activeSpaceId = $event"
+      @logout="handleLogout"
+    />
+
+    <!-- 书签编辑与快速添加弹窗 -->
+    <BookmarkModal
+      :show="showBookmarkModal"
+      :editing-bookmark="editingBookmark"
+      :groups="groups"
+      :current-space-id="activeSpaceId"
+      @close="showBookmarkModal = false"
+      @saved="loadData(activeSpaceId)"
+    />
+
+    <!-- 分组新建与重命名弹窗 -->
+    <GroupPromptModal
+      :show="showGroupPrompt"
+      :title="groupPromptTitle"
+      v-model="groupPromptValue"
+      @close="showGroupPrompt = false"
+      @save="handleSaveGroup"
+    />
   </div>
 </template>
 
 <style scoped>
-.home-container {
+.home-layout {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: #f9fafb;
-  font-family: system-ui, -apple-system, sans-serif;
-  color: #111827;
 }
-.navbar {
+
+.default-password-banner {
+  background: #fffbeb;
+  border-bottom: 1px solid #fef3c7;
+  padding: 10px 24px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: #92400e;
+}
+
+.banner-link {
+  color: #b45309;
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+.edit-mode-bar {
+  position: sticky;
+  top: 16px;
+  z-index: 50;
+  max-width: 600px;
+  margin: 16px auto 0 auto;
+  padding: 8px 16px;
+  background: var(--lh-surface);
+  border: 1px solid var(--lh-border);
+  border-radius: var(--lh-radius-full);
+  box-shadow: var(--lh-shadow-dropdown);
+  backdrop-filter: blur(var(--lh-blur));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.edit-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lh-text);
+}
+
+.edit-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--lh-radius-full);
+  background: var(--lh-accent);
+  box-shadow: 0 0 8px var(--lh-accent);
+}
+
+.edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-accent {
+  padding: 6px 14px;
+  border: none;
+  border-radius: var(--lh-radius-full);
+  background: var(--lh-accent);
+  color: var(--lh-accent-text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.btn-accent:hover {
+  opacity: 0.9;
+}
+
+.btn-sub {
+  padding: 6px 12px;
+  border: 1px solid var(--lh-border);
+  border-radius: var(--lh-radius-full);
+  background: var(--lh-surface);
+  color: var(--lh-text);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn-sub:hover {
+  background: var(--lh-surface-hover);
+}
+
+.main-body {
+  flex: 1;
+  max-width: 1120px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 40px 20px 80px 20px;
+  box-sizing: border-box;
+}
+
+.privacy-alert-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 16px 24px;
-  background: #ffffff;
-  border-bottom: 1px solid #e5e7eb;
+  padding: 10px 16px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--lh-radius-md);
+  margin-bottom: 24px;
+  color: #ef4444;
+  font-size: 13px;
 }
-.brand {
-  font-size: 18px;
-  font-weight: 600;
-}
-.space-tabs {
-  display: flex;
-  gap: 8px;
-}
-.tab-button {
-  padding: 6px 14px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: #ffffff;
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.tab-button.active {
-  background: #2563eb;
+
+.btn-lock {
+  padding: 4px 10px;
+  background: #ef4444;
   color: #ffffff;
-  border-color: #2563eb;
-}
-.lock-indicator {
-  font-size: 11px;
-  opacity: 0.85;
-}
-.user-actions {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.user-name {
-  font-size: 14px;
-  color: #4b5563;
-}
-.nav-link {
-  color: #2563eb;
-  text-decoration: none;
-  font-size: 14px;
-}
-.btn-text {
-  background: none;
   border: none;
-  color: #dc2626;
+  border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
-  padding: 0;
+  font-size: 12px;
 }
-.main-content {
-  flex: 1;
-  max-width: 800px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 40px 16px;
-}
-.welcome-banner {
-  text-align: center;
-  margin-bottom: 32px;
-}
-.welcome-banner h1 {
-  font-size: 28px;
-  margin-bottom: 8px;
-}
-.subtitle {
-  color: #6b7280;
-  font-size: 15px;
-}
-.quick-search {
-  margin-bottom: 32px;
-}
-.search-box input {
-  width: 100%;
-  padding: 12px 16px;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
-  font-size: 15px;
-  box-sizing: border-box;
-}
-.bookmarks-placeholder {
-  padding: 48px;
-  text-align: center;
-  background: #ffffff;
-  border: 1px dashed #d1d5db;
-  border-radius: 8px;
-}
-.placeholder-text {
-  color: #9ca3af;
-  margin: 0;
-}
-.unlock-card {
+
+.privacy-lock-card {
   max-width: 400px;
-  margin: 40px auto;
+  margin: 60px auto;
   padding: 32px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: var(--lh-surface);
+  border: 1px solid var(--lh-border);
+  border-radius: var(--lh-radius-lg);
+  box-shadow: var(--lh-shadow-card);
+  backdrop-filter: blur(var(--lh-blur));
   text-align: center;
 }
-.unlock-form {
+
+.lock-form {
   display: flex;
   flex-direction: column;
   gap: 12px;
   margin-top: 20px;
 }
-.unlock-form input {
+
+.lock-form input {
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  font-size: 14px;
+  border: 1px solid var(--lh-border);
+  border-radius: var(--lh-radius-sm);
+  background: var(--lh-input-bg);
+  color: var(--lh-text);
+  outline: none;
 }
-.btn-primary {
-  display: inline-block;
-  padding: 10px 16px;
-  background: #2563eb;
-  color: #ffffff;
-  border: none;
-  border-radius: 6px;
-  font-size: 14px;
-  cursor: pointer;
-  text-decoration: none;
+
+.lock-form input:focus {
+  border-color: var(--lh-accent);
 }
-.btn-lock {
-  padding: 6px 12px;
-  background: #ef4444;
-  color: #ffffff;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-}
-.space-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  background: #fef2f2;
-  border: 1px solid #fecaca;
-  border-radius: 6px;
-  margin-bottom: 24px;
-}
-.content-body {
-  padding: 32px;
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-}
-.error-text {
-  color: #dc2626;
+
+.error-msg {
+  color: #ef4444;
   font-size: 13px;
   margin: 0;
+}
+
+.setup-hint {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+  color: var(--lh-text-secondary);
+  font-size: 14px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(-8px);
 }
 </style>

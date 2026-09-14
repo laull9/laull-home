@@ -1,4 +1,4 @@
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 
 // 服务配置只在后端读取，不向 Nuxt public 配置透传。
 export interface ServerConfig {
@@ -8,6 +8,8 @@ export interface ServerConfig {
   port: number
   // SQLite 文件的绝对路径。
   databasePath: string
+  // 本地持久化数据根目录。
+  dataDir: string
   // 浏览器访问应用的唯一来源。
   origin: string
   // HTTPS 环境启用安全 Cookie。
@@ -36,10 +38,13 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   if (env.NODE_ENV === 'production' && url.protocol !== 'https:') {
     throw new Error('生产环境必须配置 HTTPS 来源')
   }
+  const databasePath = resolve(projectRoot, env.LAULL_HOME_DATABASE_PATH ?? 'data/laull-home.db')
+  const dataDir = env.LAULL_HOME_DATA_DIR ? resolve(projectRoot, env.LAULL_HOME_DATA_DIR) : dirname(databasePath)
   return {
     host: env.LAULL_HOME_HOST ?? '127.0.0.1',
     port: integer(env.LAULL_HOME_PORT, 3001, 65535),
-    databasePath: resolve(projectRoot, env.LAULL_HOME_DATABASE_PATH ?? 'data/laull-home.db'),
+    databasePath,
+    dataDir,
     origin,
     secureCookie: url.protocol === 'https:',
     sessionDays: integer(env.LAULL_HOME_SESSION_DAYS, 90, 365),

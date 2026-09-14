@@ -12,6 +12,10 @@ export function createSettingsService(db: AppDatabase) {
         revision: userSettings.revision,
         title: userSettings.title,
         appearance: userSettings.appearance,
+        themeId: userSettings.themeId,
+        wallpaperType: userSettings.wallpaperType,
+        wallpaperValue: userSettings.wallpaperValue,
+        customCss: userSettings.customCss,
       }).from(userSettings).where(eq(userSettings.userId, userId)).get()
       return row as HomeSettings
     },
@@ -20,6 +24,10 @@ export function createSettingsService(db: AppDatabase) {
       const rows = db.update(userSettings).set({
         title: value.title,
         appearance: value.appearance,
+        themeId: value.themeId ?? 'default',
+        wallpaperType: value.wallpaperType ?? 'none',
+        wallpaperValue: value.wallpaperValue ?? '',
+        customCss: value.customCss ?? '',
         revision: sql`${userSettings.revision} + 1`,
         updatedAt: Date.now(),
       }).where(
@@ -28,6 +36,10 @@ export function createSettingsService(db: AppDatabase) {
         revision: userSettings.revision,
         title: userSettings.title,
         appearance: userSettings.appearance,
+        themeId: userSettings.themeId,
+        wallpaperType: userSettings.wallpaperType,
+        wallpaperValue: userSettings.wallpaperValue,
+        customCss: userSettings.customCss,
       }).all()
       return (rows[0] as HomeSettings) ?? null
     },

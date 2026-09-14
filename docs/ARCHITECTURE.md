@@ -39,8 +39,14 @@ Web 只以 `import type` 引用服务端 App。共享包不能导入文件系统
 | --- | --- | --- |
 | users | 唯一管理账号和 Argon2id 摘要 | id 固定为 1，无公开注册 |
 | sessions | 设备会话摘要与有效期 | 外键级联，过期索引，最多 20 条 |
-| user_settings | 页面标题、外观和版本 | 每账号一条，条件更新 |
+| user_settings | 页面标题、外观、主题、壁纸和版本 | 每账号一条，条件更新 |
 | login_throttle | 登录窗口计数 | 固定一条，15 分钟最多 10 次尝试 |
+| spaces | 空间实体（普通与隐私） | 外键级联，默认空间保护 |
+| space_credentials | 隐私空间独立 Argon2id 密码哈希 | 仅限隐私空间 |
+| space_sessions | 短期空间授权会话 | 15 分钟短期有效，退出时级联销毁 |
+| bookmark_groups | 书签分组 | 所属空间外键级联，组间排序 |
+| bookmarks | 书签项 | 所属分组与空间外键级联，组内排序，协议校验 |
+| search_engines | 搜索引擎与 Bang 配置 | 模板 %s 校验，至少保留一个默认引擎 |
 | schema_migrations | 迁移版本及摘要 | 只追加 |
 
 Session 固定到期，不滑动续期。每次认证检查到期时间；每次成功登录清理过期记录并限制会话数量。登录节流在重启后仍有效；单用户全局限制不依赖可伪造的转发 IP，但被恶意消耗时会让正常用户等待窗口结束，公网部署还应在入口限制请求频率和并发。
@@ -98,8 +104,10 @@ Session 固定到期，不滑动续期。每次认证检查到期时间；每次
 | 搜索 | search_engines、search_bangs | 唯一 Bang、模板白名单与参数编码 |
 | 资源 | assets | 文件随机命名、类型和配额、引用检查 |
 | 主题 | themes、space_preferences | 版本化 Token，背景与主题分离 |
-| 组件 | widgets、widget_layouts | 按断点存布局，Renderer 白名单 |
+| 组件 | widgets、widget_layouts | 组件类型白名单、按断点存窗格跨度与位置、就地配置 JSON 校验 |
 | 服务 | integrations、integration_secrets | URL 策略、密文凭据、请求超时 |
+
+组件实体管理组件实例的所属空间、类型、标题及就地编辑的内容配置（JSON 文本）。布局表按桌面、便携本、平板和移动端四种断点分别记录组件占据的窗格跨度（col_span、row_span）与起始位置（col_start、row_start），并记录固定标记（pinned）。更新布局时采用批量更新事务，保证多设备读取到一致的窗格排布。
 
 后续 Integration 与 favicon 抓取共用受控出站能力，但策略分开：公开图标拒绝内网地址，私人 Integration 只允许显式批准的主机和端口。两者均检查解析结果和每次重定向，限制响应大小、超时与并发。代理不能接受浏览器提供任意目标 URL。
 
