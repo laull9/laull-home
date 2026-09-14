@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import type { Bookmark, BookmarkGroup } from "@laull-home/shared"
+import DesktopCanvas from '../components/desktop/DesktopCanvas.vue'
+import type { Bookmark } from "@laull-home/shared"
 
 // 启用身份鉴权守卫，未登录直接进入独立登录页面。
 definePageMeta({
@@ -8,7 +9,7 @@ definePageMeta({
 
 const { user, refresh, logout } = useAuth()
 const { spaces, activeSpaceId, fetchSpaces, unlockPrivacySpace, lockPrivacySpace } = useSpaces()
-const { groups, bookmarks, loadData, createGroup, updateGroup, deleteGroup, deleteBookmark } = useBookmarks()
+const { groups, bookmarks, loadData, createGroup, updateGroup } = useBookmarks()
 const { $api } = useNuxtApp()
 const { applyTheme } = useTheme()
 
@@ -17,6 +18,16 @@ const pageTitle = ref("我的主页")
 
 // 编辑模式开关状态。
 const isEditMode = ref(false)
+// 切换空间前保护画布草稿。
+const canvasDirty = ref(false)
+const showBookmarkManager = ref(false)
+// 当前空间有草稿时由用户决定是否放弃。
+function selectSpace(id: string) {
+  if (id === activeSpaceId.value) return
+  if (canvasDirty.value && !confirm('放弃未保存的布局修改并切换空间？')) return
+  canvasDirty.value = false
+  activeSpaceId.value = id
+}
 
 // 书签弹窗控制。
 const showBookmarkModal = ref(false)
@@ -86,26 +97,11 @@ function handleEditBookmark(bm: Bookmark) {
   showBookmarkModal.value = true
 }
 
-// 删除指定书签。
-async function handleDeleteBookmark(bm: Bookmark) {
-  if (confirm("确认删除书签「" + bm.title + "」？")) {
-    await deleteBookmark(bm.id, activeSpaceId.value)
-  }
-}
-
 // 打开新建分组对话框。
 function openCreateGroupModal() {
   editingGroupId.value = null
   groupPromptTitle.value = "新建分组"
   groupPromptValue.value = ""
-  showGroupPrompt.value = true
-}
-
-// 打开编辑分组对话框。
-function openEditGroupModal(group: BookmarkGroup) {
-  editingGroupId.value = group.id
-  groupPromptTitle.value = "重命名分组"
-  groupPromptValue.value = group.name
   showGroupPrompt.value = true
 }
 
@@ -119,13 +115,6 @@ async function handleSaveGroup(name?: string) {
     await createGroup({ spaceId: activeSpaceId.value, name: groupName })
   }
   showGroupPrompt.value = false
-}
-
-// 删除指定分组。
-async function handleDeleteGroup(group: BookmarkGroup) {
-  if (confirm("确认删除分组「" + group.name + "」及其下所有书签？")) {
-    await deleteGroup(group.id, activeSpaceId.value)
-  }
 }
 
 // 处理用户登出，跳转独立登录页面。
@@ -169,6 +158,7 @@ async function handleLock() {
           <span>正在编辑主页</span>
         </div>
         <div class="edit-actions">
+          <button type="button" class="btn-sub" @click="showBookmarkManager = true">管理书签</button>
           <button type="button" class="btn-sub" @click="openCreateGroupModal">新建分组</button>
           <button type="button" class="btn-sub" @click="handleAddBookmark">+ 添加书签</button>
           <button type="button" class="btn-accent" @click="isEditMode = false">完成编辑</button>
@@ -203,20 +193,15 @@ async function handleLock() {
           <button type="button" class="btn-lock" @click="handleLock">锁定并返回</button>
         </div>
 
-        <!-- 居中美化搜索栏组件 -->
-        <QuickSearch />
-
-        <!-- 书签分组与卡片网格组件 -->
-        <BookmarkGroupSection
-          :groups="groups"
+        <DesktopCanvas
+          :key="activeSpaceId"
+          @dirty="canvasDirty = $event"
+          @refresh="loadData(activeSpaceId)"
+          :space-id="activeSpaceId"
+          :editing="isEditMode"
           :bookmarks="bookmarks"
-          :is-edit-mode="isEditMode"
-          :is-visitor="!user"
+          :groups="groups"
           @edit-bookmark="handleEditBookmark"
-          @delete-bookmark="handleDeleteBookmark"
-          @create-group="openCreateGroupModal"
-          @edit-group="openEditGroupModal"
-          @delete-group="handleDeleteGroup"
           @add-bookmark="handleAddBookmark"
         />
       </section>
@@ -229,7 +214,7 @@ async function handleLock() {
       :active-space-id="activeSpaceId"
       :is-edit-mode="isEditMode"
       @toggle-edit-mode="isEditMode = !isEditMode"
-      @select-space="activeSpaceId = $event"
+      @select-space="selectSpace"
       @logout="handleLogout"
     />
 
@@ -242,6 +227,8 @@ async function handleLock() {
       @close="showBookmarkModal = false"
       @saved="loadData(activeSpaceId)"
     />
+
+    <BookmarkManager :show="showBookmarkManager" :space-id="activeSpaceId" @close="showBookmarkManager = false" />
 
     <!-- 分组新建与重命名弹窗 -->
     <GroupPromptModal
@@ -283,7 +270,7 @@ async function handleLock() {
   position: sticky;
   top: 16px;
   z-index: 50;
-  max-width: 600px;
+  max-width: 780px;
   margin: 16px auto 0 auto;
   padding: 8px 16px;
   background: var(--lh-surface);
@@ -352,7 +339,7 @@ async function handleLock() {
 
 .main-body {
   flex: 1;
-  max-width: 1120px;
+  max-width: 1440px;
   width: 100%;
   margin: 0 auto;
   padding: 40px 20px 80px 20px;
@@ -439,5 +426,11 @@ async function handleLock() {
 .fade-leave-to {
   opacity: 0;
   transform: translateY(-8px);
+}
+@media (max-width: 560px) {
+  .edit-mode-bar { margin: 12px 12px 0; padding: 10px 12px; border-radius: 16px; display: block; }
+  .edit-status { margin-bottom: 8px; white-space: nowrap; }
+  .edit-actions { flex-wrap: wrap; gap: 6px; }
+  .btn-sub, .btn-accent { white-space: nowrap; padding: 6px 9px; }
 }
 </style>

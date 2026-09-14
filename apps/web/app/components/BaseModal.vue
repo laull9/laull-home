@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { nextTick } from 'vue'
 // 通用弹窗组件属性声明。
 const props = withDefaults(
   defineProps<{
@@ -26,40 +27,29 @@ const emit = defineEmits<{
   (e: "close"): void
 }>()
 
-// 遮罩层节点引用。
-const backdropRef = ref<HTMLElement | null>(null)
-
-// 处理遮罩层点击事件。
+// 原生对话框负责焦点约束与焦点恢复。
+const dialogRef = ref<HTMLDialogElement | null>(null)
+// DOM 更新后同步原生对话框状态。
+watch(() => props.show, async (show) => {
+  await nextTick()
+  if (show && dialogRef.value && !dialogRef.value.open) dialogRef.value.showModal()
+  if (!show && dialogRef.value?.open) dialogRef.value.close()
+}, { immediate: true })
+// 按配置处理外部点击。
 function handleBackdropClick(event: MouseEvent) {
-  if (props.closeOnClickOutside && event.target === backdropRef.value) {
-    emit("close")
-  }
+  if (props.closeOnClickOutside && event.target === dialogRef.value) emit('close')
 }
-
-// 处理 ESC 键盘按下事件。
-function handleKeyDown(event: KeyboardEvent) {
-  if (props.show && event.key === "Escape") {
-    emit("close")
-  }
-}
-
-onMounted(() => {
-  document.addEventListener("keydown", handleKeyDown)
-})
-
-onUnmounted(() => {
-  document.removeEventListener("keydown", handleKeyDown)
-})
 </script>
 
 <template>
   <teleport to="body">
-    <transition name="modal-fade">
-      <div
-        v-if="show"
-        ref="backdropRef"
+      <dialog
+        ref="dialogRef"
+        role="dialog"
+        :aria-label="title || '对话框'"
         class="modal-backdrop"
         @click="handleBackdropClick"
+        @cancel.prevent="emit('close')"
       >
         <div class="modal-container" :style="{ maxWidth: maxWidth }">
           <!-- 弹窗头部 -->
@@ -91,24 +81,32 @@ onUnmounted(() => {
             <slot name="footer" />
           </div>
         </div>
-      </div>
-    </transition>
+      </dialog>
   </teleport>
 </template>
 
 <style scoped>
 .modal-backdrop {
+  overscroll-behavior: contain;
   position: fixed;
   inset: 0;
   z-index: 1000;
   background: rgba(0, 0, 0, 0.45);
   backdrop-filter: blur(6px);
-  display: flex;
+  border: 0;
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
   align-items: center;
   justify-content: center;
   padding: 16px;
   box-sizing: border-box;
 }
+
+.modal-backdrop[open] { display: flex; }
+.modal-backdrop::backdrop { background: transparent; }
 
 .modal-container {
   width: 100%;
@@ -176,23 +174,4 @@ onUnmounted(() => {
   background: var(--lh-surface-hover);
 }
 
-.modal-fade-enter-active,
-.modal-fade-leave-active {
-  transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.modal-fade-enter-from,
-.modal-fade-leave-to {
-  opacity: 0;
-}
-
-.modal-fade-enter-active .modal-container,
-.modal-fade-leave-active .modal-container {
-  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-.modal-fade-enter-from .modal-container,
-.modal-fade-leave-to .modal-container {
-  transform: translateY(10px) scale(0.97);
-}
 </style>

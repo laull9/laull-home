@@ -103,11 +103,19 @@ Session 固定到期，不滑动续期。每次认证检查到期时间；每次
 | 书签 | bookmark_groups、bookmarks | space_id 外键、组内排序、URL 协议校验 |
 | 搜索 | search_engines、search_bangs | 唯一 Bang、模板白名单与参数编码 |
 | 资源 | assets | 文件随机命名、类型和配额、引用检查 |
-| 主题 | themes、space_preferences | 版本化 Token，背景与主题分离 |
-| 组件 | widgets、widget_layouts | 组件类型白名单、按断点存窗格跨度与位置、就地配置 JSON 校验 |
+| 主题 | themes、space_preferences | 三层 Token、质感解耦参数、种子色预设与壁纸遮罩滤镜 |
+| 组件 | widgets、widget_layouts | 组件类型白名单、按断点存窗格跨度与位置、就地配置与独立 CSS 校验 |
+| 模板 | widget_templates | 用户自定义组件模板、预设配置快照、私有分类 |
+| 扩展 | mcp_keys | 单用户唯一有效密钥、SHA-256 哈希存储、单向刷新 |
 | 服务 | integrations、integration_secrets | URL 策略、密文凭据、请求超时 |
 
-组件实体管理组件实例的所属空间、类型、标题及就地编辑的内容配置（JSON 文本）。布局表按桌面、便携本、平板和移动端四种断点分别记录组件占据的窗格跨度（col_span、row_span）与起始位置（col_start、row_start），并记录固定标记（pinned）。更新布局时采用批量更新事务，保证多设备读取到一致的窗格排布。
+主题实体持久化三层 Token 映射与种子色推导快照，保存卡片表面透明度与高斯模糊参数。壁纸滤镜属性（暗化比例与模糊半径）作为空间外观偏好持久化并跨端同步。
+
+组件实体管理组件实例的所属空间、类型、标题、就地业务配置（JSON 文本）、UI 微调配置（JSON 文本）与独立 Scoped CSS 文本。组件支持记录 stack_id 与 stack_order 用于同窗格叠放轮播。布局表按桌面、便携本、平板和移动端四种断点分别记录组件占据的窗格跨度（col_span、row_span）与起始位置（col_start、row_start），并记录固定标记（pinned）。更新布局时采用批量更新事务，保证多设备读取到一致的窗格排布。组件复制在单事务内克隆实例数据与布局记录；保存模板时将配置快照写入模板表。单卡片导出配置串为包含版本、类型与样式的紧凑载荷，导入时严格校验 Schema 完整性与 CSS 白名单，杜绝脚本注入。
+
+MCP 扩展模块基于官方 @modelcontextprotocol/sdk 装配，暴露 SSE 与 Stdio 两种传输方式。数据库 mcp_keys 表仅保存单用户唯一密钥的 SHA-256 摘要，刷新时在事务中吊销旧记录并签发新摘要。MCP 工具层执行组件与排布变更时完全复用底层 Service 校验与数据库事务，并在写操作完成后通过 SSE 向已连接的浏览器页面广播更新事件。
+
+卡片请求外部自定义网络 API 时，前端不直接向第三方发起调用，统一调用服务端的代理通道，由服务端校验目标地址白名单、安全注入凭据并控制超时与数据大小，防范 SSRF。
 
 后续 Integration 与 favicon 抓取共用受控出站能力，但策略分开：公开图标拒绝内网地址，私人 Integration 只允许显式批准的主机和端口。两者均检查解析结果和每次重定向，限制响应大小、超时与并发。代理不能接受浏览器提供任意目标 URL。
 
@@ -120,3 +128,10 @@ SSE 在事务提交后发事件；事件仅提示客户端重新读取数据库�
 每个文件不超过 500 行。基础系统不引入业务 UI；先接通一个模块的持久化与权限，再开发交互。Docker、端到端浏览器用例和资源安全测试在对应功能实现时完成，不能用当前单元测试替代。
 
 实现依据：[Eden Treaty 配置](https://elysiajs.com/eden/treaty/config)、[Bun SQLite](https://bun.sh/docs/runtime/sqlite)、[Bun 密码哈希](https://bun.sh/docs/runtime/hashing)。
+
+
+## 组件画布的当前实现
+
+布局与组件已通过 desktops 表按空间保存版本化快照。当前采用单空间原子文档，节点、模板和四档布局在同一次事务中提交，替代前述后续规划中的分表实现。每份文档限制 120 个组件、40 个模板和 512 KiB，不保留编辑历史；这个容量适合当前单用户主页，也避免批量排布出现部分写入。
+
+主题参数保存在 user_settings.theme_config，与原有设置共用 revision。全局语义变量与组件局部变量分层应用，CSS 限制在展示属性和明确作用域。组件类型、位置、模板及样式均经过共享 Schema 校验。实现边界和操作说明见 [DESKTOP.md](DESKTOP.md)。

@@ -129,4 +129,17 @@ export const migrations = [{
   sql: `
     ALTER TABLE user_settings ADD COLUMN custom_css TEXT NOT NULL DEFAULT '';
   `,
+}, {
+  // 迁移版本 5：结构化主题与空间画布。
+  version: 5,
+  // 每个空间保留一份容量受限的当前快照。
+  sql: `
+    ALTER TABLE user_settings ADD COLUMN theme_config TEXT NOT NULL DEFAULT '{}';
+    CREATE TABLE desktops (
+      space_id TEXT PRIMARY KEY REFERENCES spaces(id) ON DELETE CASCADE,
+      revision INTEGER NOT NULL DEFAULT 0,
+      document TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+  `,
 }]

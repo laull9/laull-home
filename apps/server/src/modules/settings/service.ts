@@ -1,5 +1,6 @@
 import { and, eq, sql } from 'drizzle-orm'
-import type { HomeSettings } from '@laull-home/shared'
+import { DEFAULT_THEME, scopedCss, type HomeSettings } from '@laull-home/shared'
+import { BookmarkError } from '../bookmarks/service'
 import type { AppDatabase } from '../../db'
 import { userSettings } from '../../db/schema'
 
@@ -16,11 +17,15 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperType: userSettings.wallpaperType,
         wallpaperValue: userSettings.wallpaperValue,
         customCss: userSettings.customCss,
+        themeConfig: userSettings.themeConfig,
       }).from(userSettings).where(eq(userSettings.userId, userId)).get()
-      return row as HomeSettings
+      return { ...row, themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row?.themeConfig ?? '{}') } } as HomeSettings
     },
     // Drizzle 完成版本比较与写入；冲突返回空值。
     update(userId: number, value: HomeSettings) {
+      try { scopedCss(value.customCss ?? '', '.app-root') } catch (error) {
+        throw new BookmarkError(400, error instanceof Error ? error.message : 'CSS 无效')
+      }
       const rows = db.update(userSettings).set({
         title: value.title,
         appearance: value.appearance,
@@ -28,6 +33,7 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperType: value.wallpaperType ?? 'none',
         wallpaperValue: value.wallpaperValue ?? '',
         customCss: value.customCss ?? '',
+        ...(value.themeConfig ? { themeConfig: JSON.stringify(value.themeConfig) } : {}),
         revision: sql`${userSettings.revision} + 1`,
         updatedAt: Date.now(),
       }).where(
@@ -40,8 +46,10 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperType: userSettings.wallpaperType,
         wallpaperValue: userSettings.wallpaperValue,
         customCss: userSettings.customCss,
+        themeConfig: userSettings.themeConfig,
       }).all()
-      return (rows[0] as HomeSettings) ?? null
+      const row = rows[0]
+      return row ? { ...row, themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row.themeConfig) } } as HomeSettings : null
     },
   }
 }

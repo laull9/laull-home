@@ -1,3 +1,6 @@
+import { themeConfigSchema } from './theme'
+export * from './desktop'
+export * from './theme'
 import { Type, type Static } from '@sinclair/typebox'
 
 // 登录输入限制用于前后端一致校验。
@@ -22,6 +25,8 @@ export const settingsSchema = Type.Object({
   wallpaperType: Type.Optional(Type.Union([Type.Literal('none'), Type.Literal('color'), Type.Literal('gradient'), Type.Literal('url')])),
   // 壁纸具体参数值。
   wallpaperValue: Type.Optional(Type.String({ maxLength: 500 })),
+  // 结构化主题参数支持跨端同步。
+  themeConfig: Type.Optional(themeConfigSchema),
   // 自定义 CSS 覆盖样式规则。
   customCss: Type.Optional(Type.String({ maxLength: 32768 })),
 }, { additionalProperties: false })

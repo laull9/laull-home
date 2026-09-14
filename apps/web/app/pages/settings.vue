@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import type { SessionItem } from '@laull-home/shared'
+import { DEFAULT_THEME, type ThemeConfig, type SessionItem } from '@laull-home/shared'
 
 // 启用身份鉴权守卫。
 definePageMeta({
@@ -17,6 +17,8 @@ const themeId = ref('default')
 const wallpaperType = ref<'none' | 'color' | 'gradient' | 'url'>('none')
 const wallpaperValue = ref('')
 const customCss = ref('')
+// 主题参数与原有设置一起提交版本校验。
+const themeConfig = ref<ThemeConfig>(JSON.parse(JSON.stringify(DEFAULT_THEME)))
 const revision = ref(0)
 const settingsMsg = ref('')
 const { applyTheme, applyCustomCss, THEME_PRESETS } = useTheme()
@@ -58,6 +60,7 @@ async function loadSettings() {
     wallpaperType.value = (result.data.wallpaperType as 'none' | 'color' | 'gradient' | 'url') ?? 'none'
     wallpaperValue.value = result.data.wallpaperValue ?? ''
     customCss.value = result.data.customCss ?? ''
+    themeConfig.value = result.data.themeConfig ?? JSON.parse(JSON.stringify(DEFAULT_THEME))
     revision.value = result.data.revision
     applyTheme(result.data)
   }
@@ -74,6 +77,7 @@ async function saveSettings() {
     wallpaperType: wallpaperType.value,
     wallpaperValue: wallpaperValue.value,
     customCss: customCss.value,
+    themeConfig: themeConfig.value,
   })
   if (result.data) {
     revision.value = result.data.revision
@@ -81,9 +85,18 @@ async function saveSettings() {
     applyCustomCss(customCss.value)
     settingsMsg.value = '设置已保存'
   } else {
-    settingsMsg.value = '保存冲突，请刷新后重试'
+    settingsMsg.value = result.error?.value.message ?? '保存失败，请重试'
   }
 }
+
+// 结构化主题编辑实时预览，离开页面恢复已保存设置。
+watch(themeConfig, () => {
+  if (title.value) applyTheme({ revision: revision.value, title: title.value, appearance: appearance.value, themeId: themeId.value, wallpaperType: wallpaperType.value, wallpaperValue: wallpaperValue.value, customCss: customCss.value, themeConfig: themeConfig.value })
+}, { deep: true })
+onUnmounted(async () => {
+  const result = await $api.settings.get()
+  if (result.data) applyTheme(result.data)
+})
 
 // 提交用户名修改。
 async function handleUsernameChange() {
@@ -242,6 +255,7 @@ async function handleRevokeOthers() {
               rows="4"
             />
           </div>
+          <ThemeDesigner v-model="themeConfig" />
           <p v-if="settingsMsg" class="info-text">
             {{ settingsMsg }}
           </p>

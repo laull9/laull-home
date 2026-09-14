@@ -12,10 +12,13 @@ import {
   reorderBookmarkGroupsSchema,
   reorderBookmarksSchema,
   settingsSchema,
+  desktopSchema,
+  mergeWidgetsSchema,
   updateBookmarkGroupSchema,
   updateBookmarkSchema,
   updateSearchEngineSchema,
 } from '@laull-home/shared'
+import { createDesktopService } from './modules/desktop/service'
 import type { ServerConfig } from './config'
 import type { AppDatabase } from './db'
 import { schemaMigrations } from './db/schema'
@@ -61,6 +64,7 @@ export function isTrustedOrigin(originHeader: string | null | undefined, referer
 export function createApp(db: AppDatabase, config: ServerConfig) {
   const auth = createAuthService(db, config)
   const settings = createSettingsService(db)
+  const desktop = createDesktopService(db)
   const spaces = createSpacesService(db)
   const bookmarksService = createBookmarkService(db)
   const searchService = createSearchService(db)
@@ -75,7 +79,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
     // 同源页面与 API 共用认证。
     path: '/',
   }
-  return new Elysia({ prefix: '/api/v1', serve: { maxRequestBodySize: 16 * 1024 } })
+  return new Elysia({ prefix: '/api/v1', serve: { maxRequestBodySize: 600 * 1024 } })
     .onRequest(({ request, set, status }) => {
       set.headers['cache-control'] = 'no-store'
       set.headers['x-content-type-options'] = 'nosniff'
@@ -196,6 +200,18 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       const result = settings.update(user.id, body)
       return result ?? status(409, { code: 'REVISION_CONFLICT', message: '设置已在其他设备更新，请重新读取' })
     }, { body: settingsSchema })
+    .post('/desktop/:spaceId/merge', ({ user, params, body, spaceToken, status }) => {
+      if (!spaces.verifyAccess(user.id, params.spaceId, spaceToken)) return status(403, { code: 'FORBIDDEN', message: '空间不存在或尚未解锁' })
+      return desktop.merge(params.spaceId, body.desktop, body.sourceId, body.targetId) ?? status(409, { code: 'REVISION_CONFLICT', message: '布局已更新，请重新读取' })
+    }, { params: t.Object({ spaceId: t.String({ maxLength: 64 }) }), body: mergeWidgetsSchema })
+    .get('/desktop/:spaceId', ({ user, params, spaceToken, status }) => {
+      if (!spaces.verifyAccess(user.id, params.spaceId, spaceToken)) return status(403, { code: 'FORBIDDEN', message: '空间不存在或尚未解锁' })
+      return desktop.get(params.spaceId)
+    }, { params: t.Object({ spaceId: t.String({ maxLength: 64 }) }) })
+    .put('/desktop/:spaceId', ({ user, params, body, spaceToken, status }) => {
+      if (!spaces.verifyAccess(user.id, params.spaceId, spaceToken)) return status(403, { code: 'FORBIDDEN', message: '空间不存在或尚未解锁' })
+      return desktop.save(params.spaceId, body) ?? status(409, { code: 'REVISION_CONFLICT', message: '布局已在其他设备更新，请重新读取' })
+    }, { params: t.Object({ spaceId: t.String({ maxLength: 64 }) }), body: desktopSchema })
     .get('/spaces', ({ user, spaceToken }) => {
       return { spaces: spaces.list(user.id, spaceToken) }
     })

@@ -25,3 +25,5 @@ laull-home 是一个高度自定义、私有化的个人浏览器方案，你可
 - [API](docs/API.md)
 - [开发、测试与发布](docs/CI.md)
 - [实施计划](TODO.md)
+
+组件桌面与主题配置说明见 [docs/DESKTOP.md](docs/DESKTOP.md)。

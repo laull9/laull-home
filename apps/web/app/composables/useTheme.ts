@@ -1,4 +1,4 @@
-import type { HomeSettings } from "@laull-home/shared"
+import { DEFAULT_THEME, seedTokens, scopedCss, type HomeSettings } from "@laull-home/shared"
 
 // 预设主题配置结构，按明暗两套模式细化变量。
 export interface ThemePreset {
@@ -218,7 +218,8 @@ export function useTheme() {
       styleEl.id = "lh-custom-css"
       document.head.appendChild(styleEl)
     }
-    styleEl.textContent = cssText?.trim() || ""
+    try { styleEl.textContent = scopedCss(cssText ?? '', '.app-root') }
+    catch { styleEl.textContent = '' }
   }
 
   // 计算当前应用的背景样式。
@@ -266,7 +267,20 @@ export function useTheme() {
     }
 
     const preset = THEME_PRESETS.find(p => p.id === s.themeId) ?? THEME_PRESETS[0]!
-    const activeTokens = dark ? preset.dark : preset.light
+    const config = s.themeConfig ?? DEFAULT_THEME
+    const activeTokens = { ...(dark ? preset.dark : preset.light), ...(config.customSeed ? seedTokens(config.seed, dark) : {}) }
+    for (const [key, value] of Object.entries(dark ? config.dark : config.light)) if (value) activeTokens['--lh-' + key] = value
+    root.style.colorScheme = dark ? 'dark' : 'light'
+    root.style.setProperty('--lh-seed', config.seed)
+    root.style.setProperty('--lh-surface-solid', activeTokens['--lh-surface']!.replace(/^rgba\(([^,]+),([^,]+),([^,]+),[^)]+\)$/, 'rgb($1,$2,$3)'))
+    root.style.setProperty('--lh-surface-opacity', config.opacity + '%')
+    root.style.setProperty('--lh-grid-gap', config.gap + 'px')
+    root.style.setProperty('--lh-wallpaper-dim', String(config.wallpaperDim / 100))
+    root.style.setProperty('--lh-wallpaper-blur', config.wallpaperBlur + 'px')
+    activeTokens['--lh-blur'] = config.blur + 'px'
+    activeTokens['--lh-radius-lg'] = config.radius + 'px'
+    activeTokens['--lh-radius-md'] = Math.round(config.radius * .65) + 'px'
+    activeTokens['--lh-radius-sm'] = Math.round(config.radius * .4) + 'px'
     for (const [key, val] of Object.entries(activeTokens)) {
       root.style.setProperty(key, val)
     }
@@ -284,8 +298,8 @@ export function useTheme() {
         applyTheme(settings.value)
       }
     }
-    mediaQuery.removeEventListener("change", handler)
     mediaQuery.addEventListener("change", handler)
+    return () => mediaQuery.removeEventListener("change", handler)
   }
 
   return {

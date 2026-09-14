@@ -16,9 +16,14 @@ export function useBookmarks() {
   const loading = ref(false)
   const error = ref("")
   const { $api } = useNuxtApp()
+  // 多处发起重读时只接纳最新请求。
+  const readVersion = useState<number>('bookmarks:read-version', () => 0)
 
   // 读取指定空间下的分组与书签。
   async function loadData(spaceId = "default") {
+    const requestVersion = ++readVersion.value
+    groups.value = []
+    bookmarks.value = []
     loading.value = true
     error.value = ""
     try {
@@ -26,12 +31,14 @@ export function useBookmarks() {
         $api.bookmarks.groups.get({ query: { spaceId } }),
         $api.bookmarks.get({ query: { spaceId } }),
       ])
+      if (requestVersion !== readVersion.value) return
+      if (groupsRes.error || bookmarksRes.error) throw new Error('书签读取失败或空间授权已过期')
       if (groupsRes.data) groups.value = groupsRes.data.groups
       if (bookmarksRes.data) bookmarks.value = bookmarksRes.data.bookmarks
     } catch (err: unknown) {
-      error.value = err instanceof Error ? err.message : "加载书签失败"
+      if (requestVersion === readVersion.value) error.value = err instanceof Error ? err.message : "加载书签失败"
     } finally {
-      loading.value = false
+      if (requestVersion === readVersion.value) loading.value = false
     }
   }
 

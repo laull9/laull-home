@@ -84,6 +84,11 @@ async function handleSubmit() {
     let url = formUrl.value.trim()
     if (!/^https?:\/\//i.test(url)) url = "https://" + url
 
+    // 保存前补取缺失图标，抓取失败不阻止书签保存。
+    if (!formIconUrl.value.trim()) {
+      try { formIconUrl.value = await fetchFavicon(url) } catch { /* 保留本地默认图标。 */ }
+    }
+
     if (props.editingBookmark) {
       await updateBookmark(props.editingBookmark.id, props.currentSpaceId, {
         groupId: formGroupId.value,

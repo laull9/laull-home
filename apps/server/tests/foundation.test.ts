@@ -1,3 +1,4 @@
+import { DEFAULT_THEME } from '@laull-home/shared'
 import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -139,9 +140,9 @@ describe('认证与设置', () => {
     expect((await request('/settings', 'PUT', { ...setting, customCss: 'a'.repeat(32769) }, cookie)).status).toBe(400)
     const saved = await request('/settings', 'PUT', setting, cookie)
     expect(saved.status).toBe(200)
-    expect(await saved.json()).toEqual({ ...setting, revision: 1 })
+    expect(await saved.json()).toEqual({ ...setting, revision: 1, themeConfig: DEFAULT_THEME })
     expect((await request('/settings', 'PUT', setting, cookie)).status).toBe(409)
-    expect(await (await request('/settings', 'GET', undefined, cookie)).json()).toEqual({ ...setting, revision: 1 })
+    expect(await (await request('/settings', 'GET', undefined, cookie)).json()).toEqual({ ...setting, revision: 1, themeConfig: DEFAULT_THEME })
   })
 
   test('登录尝试计数持久化且窗口结束后恢复', async () => {

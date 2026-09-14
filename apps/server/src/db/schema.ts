@@ -49,6 +49,8 @@ export const userSettings = sqliteTable('user_settings', {
   wallpaperType: text('wallpaper_type').notNull().default('none'),
   // 壁纸具体参数。
   wallpaperValue: text('wallpaper_value').notNull().default(''),
+  // 结构化主题参数。
+  themeConfig: text('theme_config').notNull().default('{}'),
   // 自定义 CSS 覆盖样式规则。
   customCss: text('custom_css').notNull().default(''),
   // 更新时间戳。
@@ -196,3 +198,15 @@ export const searchEngines = sqliteTable('search_engines', {
   index('idx_search_engines_bang').on(table.bang),
 ])
 
+
+// 空间画布将节点与断点布局同时提交。
+export const desktops = sqliteTable('desktops', {
+  // 空间删除时清理画布。
+  spaceId: text('space_id').primaryKey().references(() => spaces.id, { onDelete: 'cascade' }),
+  // 乐观锁版本。
+  revision: integer('revision').notNull().default(0),
+  // 经过 Schema 校验的快照。
+  document: text('document').notNull(),
+  // 最后更新时间。
+  updatedAt: integer('updated_at').notNull(),
+})

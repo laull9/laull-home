@@ -57,16 +57,7 @@ function getBookmarksForGroup(groupId: string): Bookmark[] {
             class="bookmark-link"
           >
             <div class="icon-box">
-              <img
-                v-if="bm.iconUrl"
-                :src="bm.iconUrl"
-                :alt="bm.title"
-                class="bookmark-icon"
-                @error="bm.iconUrl = ''"
-              >
-              <div v-else class="default-icon">
-                {{ (bm.title[0] ?? '#').toUpperCase() }}
-              </div>
+              <BookmarkIcon :title="bm.title" :icon-url="bm.iconUrl" />
             </div>
             <span class="bookmark-title" :title="bm.title">{{ bm.title }}</span>
           </a>
