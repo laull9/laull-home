@@ -2,14 +2,15 @@ import { afterEach, describe, expect, test } from 'bun:test'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Database } from 'bun:sqlite'
+import { eq } from 'drizzle-orm'
 import { createApp } from '../src/app'
 import { loadConfig } from '../src/config'
-import { openDatabase } from '../src/db'
+import { openDatabase, type AppDatabase } from '../src/db'
+import { loginThrottle, schemaMigrations, sessions, users } from '../src/db/schema'
 import { createUser, hashToken } from '../src/modules/auth/service'
 
 // 测试使用独立内存数据库，绝不访问本地账号。
-const databases: Database[] = []
+const databases: AppDatabase[] = []
 afterEach(() => { for (const db of databases.splice(0)) db.close() })
 
 // 每个场景创建隔离的 API 与账号。
@@ -51,10 +52,10 @@ describe('配置与迁移', () => {
       await createUser(db, 'owner', 'test-password-123')
       db.close()
       db = openDatabase(path)
-      expect(db.query('SELECT * FROM users').all()).toHaveLength(1)
-      expect(db.query('SELECT * FROM schema_migrations').all()).toHaveLength(1)
-      expect(() => db.query('INSERT INTO sessions VALUES (?, 2, 1, 2)').run('invalid')).toThrow()
-      db.query('UPDATE schema_migrations SET checksum = ?').run('changed')
+      expect(db.select().from(users).all()).toHaveLength(1)
+      expect(db.select().from(schemaMigrations).all()).toHaveLength(2)
+      expect(() => db.insert(sessions).values({ tokenHash: 'invalid', userId: 999, createdAt: 1, expiresAt: 2 }).run()).toThrow()
+      db.update(schemaMigrations).set({ checksum: 'changed' }).run()
       expect(() => openDatabase(path)).toThrow('迁移内容')
     } finally { db.close(); rmSync(dir, { recursive: true }) }
   })
@@ -76,8 +77,8 @@ describe('认证与设置', () => {
     expect(response.headers.get('set-cookie')).toContain('HttpOnly')
     expect(response.headers.get('set-cookie')).toContain('SameSite=Lax')
     const token = cookie.split('=')[1]!
-    expect(db.query<{ token_hash: string }, []>('SELECT token_hash FROM sessions').get()!.token_hash).toBe(hashToken(token))
-    expect(db.query<{ password_hash: string }, []>('SELECT password_hash FROM users').get()!.password_hash).toStartWith('$argon2id$')
+    expect(db.select({ tokenHash: sessions.tokenHash }).from(sessions).get()!.tokenHash).toBe(hashToken(token))
+    expect(db.select({ passwordHash: users.passwordHash }).from(users).get()!.passwordHash).toStartWith('$argon2id$')
     expect(await (await request('/auth/me', 'GET', undefined, cookie)).json()).toEqual({ user: { id: 1, username: 'owner' } })
     expect((await request('/auth/logout', 'POST', undefined, cookie)).status).toBe(200)
     expect((await request('/auth/me', 'GET', undefined, cookie)).status).toBe(401)
@@ -90,7 +91,7 @@ describe('认证与设置', () => {
     expect((await request('/auth/revoke-others', 'POST', undefined, second.cookie)).status).toBe(200)
     expect((await request('/auth/me', 'GET', undefined, first.cookie)).status).toBe(401)
     expect((await request('/auth/me', 'GET', undefined, second.cookie)).status).toBe(200)
-    db.query('UPDATE sessions SET expires_at = 0').run()
+    db.update(sessions).set({ expiresAt: 0 }).run()
     expect((await request('/auth/me', 'GET', undefined, second.cookie)).status).toBe(401)
   })
 
@@ -116,11 +117,12 @@ describe('认证与设置', () => {
 
   test('登录尝试计数持久化且窗口结束后恢复', async () => {
     const { db, request } = await fixture()
-    db.query('INSERT INTO login_throttle VALUES (1, 10, ?)').run(Date.now() + 60_000)
+    db.insert(loginThrottle).values({ id: 1, attempts: 10, windowEnd: Date.now() + 60_000 })
+      .onConflictDoUpdate({ target: loginThrottle.id, set: { attempts: 10, windowEnd: Date.now() + 60_000 } }).run()
     const body = { username: 'owner', password: 'wrong-password-123' }
     expect((await request('/auth/login', 'POST', body)).status).toBe(429)
-    db.query('UPDATE login_throttle SET window_end = 0').run()
+    db.update(loginThrottle).set({ windowEnd: 0 }).where(eq(loginThrottle.id, 1)).run()
     expect((await request('/auth/login', 'POST', body)).status).toBe(401)
-    expect(db.query<{ attempts: number }, []>('SELECT attempts FROM login_throttle').get()!.attempts).toBe(1)
+    expect(db.select({ attempts: loginThrottle.attempts }).from(loginThrottle).where(eq(loginThrottle.id, 1)).get()!.attempts).toBe(1)
   })
 })

@@ -1,14 +1,23 @@
-import { Elysia } from 'elysia'
-import type { Database } from 'bun:sqlite'
-import { loginSchema, settingsSchema } from '@laull-home/shared'
+import { Elysia, t } from 'elysia'
+import {
+  changePasswordSchema,
+  loginSchema,
+  privacySetupSchema,
+  privacyUnlockSchema,
+  settingsSchema,
+} from '@laull-home/shared'
 import type { ServerConfig } from './config'
+import type { AppDatabase } from './db'
+import { schemaMigrations } from './db/schema'
 import { AuthError, createAuthService } from './modules/auth/service'
 import { createSettingsService } from './modules/settings/service'
+import { createSpacesService } from './modules/spaces/service'
 
 // 创建应用但不监听端口，便于测试与类型导出。
-export function createApp(db: Database, config: ServerConfig) {
+export function createApp(db: AppDatabase, config: ServerConfig) {
   const auth = createAuthService(db, config)
   const settings = createSettingsService(db)
+  const spaces = createSpacesService(db)
   const cookieOptions = {
     // 限制 Cookie 只能由 HTTP 读取。
     httpOnly: true,
@@ -41,11 +50,12 @@ export function createApp(db: Database, config: ServerConfig) {
       return status(500, { code: 'INTERNAL_ERROR', message: '服务暂时不可用' })
     })
     .get('/health', () => {
-      db.query('SELECT 1').get()
+      db.select().from(schemaMigrations).limit(1).all()
       return { status: 'ok' as const }
     })
-    .post('/auth/login', async ({ body, cookie }) => {
-      const result = await auth.login(body.username, body.password)
+    .post('/auth/login', async ({ body, cookie, request }) => {
+      const userAgent = request.headers.get('user-agent') ?? ''
+      const result = await auth.login(body.username, body.password, userAgent)
       // 重登轮换当前设备的旧 Session。
       if (typeof cookie.lh_session!.value === 'string') auth.logout(cookie.lh_session!.value)
       cookie.lh_session!.set({ ...cookieOptions, value: result.token, expires: new Date(result.expiresAt) })
@@ -61,8 +71,25 @@ export function createApp(db: Database, config: ServerConfig) {
     .post('/auth/logout', ({ sessionToken, cookie }) => {
       auth.logout(sessionToken)
       cookie.lh_session!.set({ ...cookieOptions, value: '', maxAge: 0, expires: new Date(0) })
+      if (typeof cookie.lh_space_session?.value === 'string') {
+        spaces.lock(cookie.lh_space_session.value)
+        cookie.lh_space_session.set({ ...cookieOptions, value: '', maxAge: 0, expires: new Date(0) })
+      }
       return { success: true }
     })
+    .post('/auth/change-password', async ({ user, body, cookie, request }) => {
+      const userAgent = request.headers.get('user-agent') ?? ''
+      const result = await auth.changePassword(user.id, body.oldPassword, body.newPassword, userAgent)
+      cookie.lh_session!.set({ ...cookieOptions, value: result.token, expires: new Date(result.expiresAt) })
+      return { success: true }
+    }, { body: changePasswordSchema })
+    .get('/auth/sessions', ({ user, sessionToken }) => {
+      return { sessions: auth.listSessions(user.id, sessionToken) }
+    })
+    .delete('/auth/sessions/:id', ({ user, params }) => {
+      auth.revokeSession(user.id, params.id)
+      return { success: true }
+    }, { params: t.Object({ id: t.String() }) })
     .post('/auth/revoke-others', ({ sessionToken }) => {
       auth.revokeOthers(sessionToken)
       return { success: true }
@@ -72,6 +99,26 @@ export function createApp(db: Database, config: ServerConfig) {
       const result = settings.update(user.id, body)
       return result ?? status(409, { code: 'REVISION_CONFLICT', message: '设置已在其他设备更新，请重新读取' })
     }, { body: settingsSchema })
+    .get('/spaces', ({ user, cookie }) => {
+      const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
+      return { spaces: spaces.list(user.id, spaceToken) }
+    })
+    .post('/spaces/privacy/setup', async ({ user, body }) => {
+      await spaces.setupPassword(user.id, 'privacy', body.password)
+      return { success: true }
+    }, { body: privacySetupSchema })
+    .post('/spaces/privacy/unlock', async ({ user, body, cookie }) => {
+      const result = await spaces.unlock(user.id, 'privacy', body.password)
+      cookie.lh_space_session!.set({ ...cookieOptions, value: result.token, expires: new Date(result.expiresAt) })
+      return { success: true, expiresAt: result.expiresAt }
+    }, { body: privacyUnlockSchema })
+    .post('/spaces/privacy/lock', ({ cookie }) => {
+      if (typeof cookie.lh_space_session?.value === 'string') {
+        spaces.lock(cookie.lh_space_session.value)
+      }
+      cookie.lh_space_session!.set({ ...cookieOptions, value: '', maxAge: 0, expires: new Date(0) })
+      return { success: true }
+    })
 }
 
 // 前端只导入此类型，禁止引入后端运行时代码。

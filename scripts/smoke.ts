@@ -66,6 +66,7 @@ try {
   }
   assert(ready, '服务启动超时')
   assert((await request('/')).status === 200, '首页 SSR 失败')
+  assert((await request('/login')).status === 200, '登录页 SSR 失败')
   assert((await request('/api/v1/auth/me')).status === 401, '匿名请求未被拒绝')
   const login = await request('/api/v1/auth/login', 'POST', { username: 'owner', password: 'smoke-password-123' })
   assert(login.status === 200, '同源登录失败')
@@ -79,10 +80,23 @@ try {
   const saved = await (await request('/api/v1/settings', 'GET', undefined, cookie)).json()
   assert(saved.title === settings.title && saved.revision === 1, '设置持久化结果不一致')
   assert((await request('/api/v1/settings', 'PUT', settings, cookie)).status === 409, '版本冲突未被拒绝')
+  const sessionsRes = await request('/api/v1/auth/sessions', 'GET', undefined, cookie)
+  assert(sessionsRes.status === 200, '会话列表获取失败')
+  const spacesRes = await request('/api/v1/spaces', 'GET', undefined, cookie)
+  assert(spacesRes.status === 200, '空间列表获取失败')
+  assert((await request('/api/v1/spaces/privacy/setup', 'POST', { password: 'privacy-smoke-123' }, cookie)).status === 200, '隐私密码设置失败')
+  const unlockRes = await request('/api/v1/spaces/privacy/unlock', 'POST', { password: 'privacy-smoke-123' }, cookie)
+  assert(unlockRes.status === 200, '隐私空间解锁失败')
   assert((await request('/api/v1/auth/logout', 'POST', undefined, cookie, 'https://evil.test')).status === 403, '跨站请求未被拒绝')
   const logout = await request('/api/v1/auth/logout', 'POST', undefined, cookie)
   assert(logout.status === 200 && logout.headers.get('set-cookie')?.includes('Max-Age=0'), '退出未清除 Cookie')
   assert((await request('/api/v1/auth/me', 'GET', undefined, cookie)).status === 401, '退出后的 Session 仍然有效')
+  const reset = Bun.spawnSync(['bun', 'apps/server/dist/reset-password.js', 'owner'], {
+    env, stdin: Buffer.from('smoke-new-password-123'), stdout: 'pipe', stderr: 'pipe',
+  })
+  assert(reset.exitCode === 0, '构建后的密码重置命令失败')
+  const reLogin = await request('/api/v1/auth/login', 'POST', { username: 'owner', password: 'smoke-new-password-123' })
+  assert(reLogin.status === 200, '重置密码后登录失败')
   console.info('构建产物联调通过')
 } finally {
   for (const child of children) child.kill('SIGKILL')

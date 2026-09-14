@@ -27,5 +27,43 @@ export function useAuth() {
     user.value = null
   }
 
-  return { user: readonly(user), refresh, login, logout }
+  // 修改密码并更新本地会话。
+  async function changePassword(oldPassword: string, newPassword: string) {
+    if (import.meta.server) throw new Error('修改密码需要在浏览器执行')
+    const result = await $api.auth['change-password'].post({ oldPassword, newPassword })
+    if (result.error) throw new Error(result.error.value?.message ?? '修改密码失败')
+    await refresh()
+  }
+
+  // 获取活动会话列表。
+  async function fetchSessions() {
+    const result = await $api.auth.sessions.get()
+    if (result.error) throw new Error('读取设备列表失败')
+    return result.data.sessions
+  }
+
+  // 撤销指定设备会话。
+  async function revokeSession(id: string) {
+    if (import.meta.server) throw new Error('操作需要在浏览器执行')
+    const result = await $api.auth.sessions({ id }).delete()
+    if (result.error) throw new Error('撤销设备会话失败')
+  }
+
+  // 撤销除当前会话外的所有设备。
+  async function revokeOthers() {
+    if (import.meta.server) throw new Error('操作需要在浏览器执行')
+    const result = await $api.auth['revoke-others'].post()
+    if (result.error) throw new Error('撤销其他设备失败')
+  }
+
+  return {
+    user: readonly(user),
+    refresh,
+    login,
+    logout,
+    changePassword,
+    fetchSessions,
+    revokeSession,
+    revokeOthers,
+  }
 }

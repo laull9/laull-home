@@ -16,6 +16,7 @@
     "check": "bun run lint && bun run typecheck && bun run test && bun run build && bun run test:smoke",
     "db:migrate": "bun apps/server/src/db/migrate.ts",
     "auth:create": "bun apps/server/src/modules/auth/create-user.ts",
+    "auth:reset": "bun apps/server/src/modules/auth/reset-password.ts",
     "test:smoke": "bun scripts/smoke.ts",
     "release:verify": "bun scripts/release-policy.ts",
     "release:pack": "bun scripts/package-release.ts",
@@ -30,5 +31,5 @@
     "typescript-eslint": "^8.48.0",
     "vue-eslint-parser": "^10.2.0"
   },
-  "version": "0.0.1"
+  "version": "0.0.2"
 }

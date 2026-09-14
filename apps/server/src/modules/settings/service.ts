@@ -1,18 +1,35 @@
-import type { Database } from 'bun:sqlite'
+import { and, eq, sql } from 'drizzle-orm'
 import type { HomeSettings } from '@laull-home/shared'
+import type { AppDatabase } from '../../db'
+import { userSettings } from '../../db/schema'
 
 // 设置访问集中处理版本比较，防止多端编辑互相覆盖。
-export function createSettingsService(db: Database) {
+export function createSettingsService(db: AppDatabase) {
   return {
     // 所有设置都从数据库读取。
     get(userId: number) {
-      return db.query<HomeSettings, [number]>('SELECT revision, title, appearance FROM user_settings WHERE user_id = ?').get(userId)!
+      const row = db.select({
+        revision: userSettings.revision,
+        title: userSettings.title,
+        appearance: userSettings.appearance,
+      }).from(userSettings).where(eq(userSettings.userId, userId)).get()
+      return row as HomeSettings
     },
-    // 单条 SQL 完成版本比较与写入；冲突返回空值。
+    // Drizzle 完成版本比较与写入；冲突返回空值。
     update(userId: number, value: HomeSettings) {
-      return db.query<HomeSettings, [string, string, number, number, number]>(
-        'UPDATE user_settings SET title = ?, appearance = ?, revision = revision + 1, updated_at = ? WHERE user_id = ? AND revision = ? RETURNING revision, title, appearance',
-      ).get(value.title, value.appearance, Date.now(), userId, value.revision)
+      const rows = db.update(userSettings).set({
+        title: value.title,
+        appearance: value.appearance,
+        revision: sql`${userSettings.revision} + 1`,
+        updatedAt: Date.now(),
+      }).where(
+        and(eq(userSettings.userId, userId), eq(userSettings.revision, value.revision)),
+      ).returning({
+        revision: userSettings.revision,
+        title: userSettings.title,
+        appearance: userSettings.appearance,
+      }).all()
+      return (rows[0] as HomeSettings) ?? null
     },
   }
 }

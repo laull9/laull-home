@@ -8,11 +8,12 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun src/index.ts",
-    "build": "bun build src/index.ts --target=bun --outdir=dist && bun build src/modules/auth/create-user.ts --target=bun --outfile=dist/create-user.js",
+    "build": "bun build src/index.ts --target=bun --outdir=dist && bun build src/modules/auth/create-user.ts --target=bun --outfile=dist/create-user.js && bun build src/modules/auth/reset-password.ts --target=bun --outfile=dist/reset-password.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@laull-home/shared": "workspace:*",
+    "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.0"
   }
 }

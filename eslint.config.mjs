@@ -11,11 +11,22 @@ export default ts.config(
   {
     files: ['**/*.vue'],
     languageOptions: { parserOptions: { parser: ts.parser } },
+    rules: {
+      'vue/multi-word-component-names': 'off',
+    },
   },
   {
     files: ['**/*.{ts,mjs,vue}'],
     languageOptions: {
-      globals: Object.fromEntries(['process', 'Bun', 'console', 'crypto', 'URL', 'window', 'defineNuxtConfig', 'defineNuxtPlugin', 'defineEventHandler', 'useRuntimeConfig', 'getRequestURL', 'createError', 'proxyRequest', 'useRequestHeaders', 'useState', 'useNuxtApp', 'readonly', 'Response', 'fetch', 'AbortSignal'].map(name => [name, 'readonly'])),
+      globals: Object.fromEntries([
+        'process', 'Bun', 'console', 'crypto', 'URL', 'window',
+        'defineNuxtConfig', 'defineNuxtPlugin', 'defineEventHandler',
+        'useRuntimeConfig', 'getRequestURL', 'createError', 'proxyRequest',
+        'useRequestHeaders', 'useState', 'useNuxtApp', 'readonly', 'Response',
+        'fetch', 'AbortSignal', 'ref', 'computed', 'onMounted', 'useRouter',
+        'useRoute', 'definePageMeta', 'navigateTo', 'defineNuxtRouteMiddleware',
+        'useAuth', 'useSpaces',
+      ].map(name => [name, 'readonly'])),
     },
   },
 )
