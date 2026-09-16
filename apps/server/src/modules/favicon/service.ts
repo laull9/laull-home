@@ -66,18 +66,6 @@ export async function assertSafeOutboundUrl(targetUrl: string): Promise<URL> {
   return url
 }
 
-// 基于站点域名生成默认 SVG 占位图标。
-function generateDefaultSvg(domain: string): string {
-  const char = (domain.replace(/^www\./, "")[0] ?? "W").toUpperCase()
-  const colors = ["#2563eb", "#059669", "#7c3aed", "#d97706", "#dc2626", "#0891b2"]
-  const hash = Array.from(domain).reduce((acc, c) => acc + c.charCodeAt(0), 0)
-  const color = colors[hash % colors.length]
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">
-    <rect width="64" height="64" rx="14" fill="${color}"/>
-    <text x="50%" y="54%" font-family="system-ui, -apple-system, sans-serif" font-size="32" font-weight="bold" fill="#ffffff" dominant-baseline="middle" text-anchor="middle">${char}</text>
-  </svg>`
-}
-
 // 创建受控 Favicon 探测与缓存服务。
 export function createFaviconService(dataDir: string) {
   const iconsDir = resolve(dataDir, "icons")
@@ -91,7 +79,7 @@ export function createFaviconService(dataDir: string) {
     while (redirects <= maxRedirects) {
       const url = await assertSafeOutboundUrl(currentUrl)
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 3000)
+      const timer = setTimeout(() => controller.abort(), 5000)
 
       try {
         const res = await fetch(url.toString(), {
@@ -113,19 +101,23 @@ export function createFaviconService(dataDir: string) {
 
         if (!res.ok) throw new FaviconError(res.status, "抓取目标返回失败状态")
 
+        const contentType = res.headers.get("content-type") ?? "application/octet-stream"
+        const isHtml = contentType.includes("text/html")
+        const maxBytes = isHtml ? 2 * 1024 * 1024 : 512 * 1024
+
         const lengthHeader = res.headers.get("content-length")
-        if (lengthHeader && Number(lengthHeader) > 512 * 1024) {
-          throw new FaviconError(400, "响应体积超出 512KB 限制")
+        if (lengthHeader && Number(lengthHeader) > maxBytes) {
+          throw new FaviconError(400, isHtml ? "HTML体积超出 2MB 限制" : "响应体积超出 512KB 限制")
         }
 
         const arrayBuffer = await res.arrayBuffer()
-        if (arrayBuffer.byteLength > 512 * 1024) {
-          throw new FaviconError(400, "响应体积超出 512KB 限制")
+        if (arrayBuffer.byteLength > maxBytes) {
+          throw new FaviconError(400, isHtml ? "HTML体积超出 2MB 限制" : "响应体积超出 512KB 限制")
         }
 
         return {
           buffer: Buffer.from(arrayBuffer),
-          contentType: res.headers.get("content-type") ?? "application/octet-stream",
+          contentType,
         }
       } finally {
         clearTimeout(timer)
@@ -138,13 +130,17 @@ export function createFaviconService(dataDir: string) {
   // 从 HTML 中正则提取常见图标地址。
   function extractIconsFromHtml(html: string, baseUrl: string): string[] {
     const candidates: string[] = []
-    const linkRegex = /<link[^>]+(?:rel=["'](?:shortcut )?icon["']|rel=["']apple-touch-icon(?:-precomposed)?["'])[^>]*>/gi
-    const hrefRegex = /href=["']([^"']+)["']/i
+    const linkRegex = /<link\b[^>]*>/gi
 
     let match: RegExpExecArray | null
     while ((match = linkRegex.exec(html)) !== null) {
       const tag = match[0]
-      const hrefMatch = hrefRegex.exec(tag)
+      const relMatch = /rel=["']([^"']+)["']/i.exec(tag)
+      if (!relMatch) continue
+      const rel = relMatch[1]?.toLowerCase() ?? ""
+      if (!rel.includes("icon")) continue
+
+      const hrefMatch = /href=["']([^"']+)["']/i.exec(tag)
       if (hrefMatch?.[1]) {
         try {
           candidates.push(new URL(hrefMatch[1], baseUrl).toString())
@@ -175,16 +171,44 @@ export function createFaviconService(dataDir: string) {
     },
 
     // 探测并缓存站点图标，返回本地相对访问路径。
-    async fetchAndCache(siteUrl: string): Promise<string> {
+    async fetchAndCache(siteUrl: string, forceRefresh = false): Promise<string> {
       const safeUrl = await assertSafeOutboundUrl(siteUrl)
       const domain = safeUrl.hostname
       const urlHash = createHash("sha256").update(domain).digest("hex").slice(0, 16)
 
-      // 检查是否已有缓存
-      for (const ext of [".png", ".ico", ".svg", ".webp", ".jpg"]) {
-        const candidateName = urlHash + ext
-        if (existsSync(join(iconsDir, candidateName))) {
-          return "/api/v1/icons/" + candidateName
+      // 检查是否已有真实图标缓存（非强制刷新时直接复用）
+      if (!forceRefresh) {
+        for (const ext of [".png", ".ico", ".svg", ".webp", ".jpg"]) {
+          const candidateName = urlHash + ext
+          if (existsSync(join(iconsDir, candidateName))) {
+            return "/api/v1/icons/" + candidateName
+          }
+        }
+      }
+
+      // 针对必应等知名搜索引擎预置极速官方图标探测端点
+      const priorityUrls: string[] = []
+      if (domain.includes("bing.com")) {
+        priorityUrls.push(
+          "https://cn.bing.com/sa/simg/favicon-trans-bg-blue-mg-png.png",
+          "https://cn.bing.com/favicon.ico",
+          "https://www.bing.com/favicon.ico",
+        )
+      }
+
+      for (const pUrl of priorityUrls) {
+        try {
+          const iconData = await fetchWithSafeLimits(pUrl)
+          if (iconData.buffer.byteLength > 0) {
+            let ext = ".png"
+            if (iconData.contentType.includes("icon") || pUrl.endsWith(".ico")) ext = ".ico"
+            else if (iconData.contentType.includes("svg") || pUrl.endsWith(".svg")) ext = ".svg"
+            const filename = urlHash + ext
+            writeFileSync(join(iconsDir, filename), iconData.buffer)
+            return "/api/v1/icons/" + filename
+          }
+        } catch {
+          // 忽略预设端点探测失败
         }
       }
 
@@ -229,11 +253,16 @@ export function createFaviconService(dataDir: string) {
         // 忽略 /favicon.ico 探测失败
       }
 
-      // 3. 所有抓取失败，生成基于首字母的 SVG 默认图标
-      const defaultSvg = generateDefaultSvg(domain)
-      const filename = urlHash + ".svg"
-      writeFileSync(join(iconsDir, filename), Buffer.from(defaultSvg, "utf-8"))
-      return "/api/v1/icons/" + filename
+      // 3. 若远程拉取失败但本地存在旧缓存，返回旧缓存兜底
+      for (const ext of [".png", ".ico", ".svg", ".webp", ".jpg"]) {
+        const candidateName = urlHash + ext
+        if (existsSync(join(iconsDir, candidateName))) {
+          return "/api/v1/icons/" + candidateName
+        }
+      }
+
+      // 4. 所有抓取失败，返回空由客户端回退
+      return ""
     },
   }
 }

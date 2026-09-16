@@ -21,12 +21,48 @@ const isEditMode = ref(false)
 // 切换空间前保护画布草稿。
 const canvasDirty = ref(false)
 const showBookmarkManager = ref(false)
+// 快速添加完成后在当前画布建立图标引用。
+const desktopCanvas = ref<InstanceType<typeof DesktopCanvas> | null>(null)
+const quickAdding = ref(false)
+const quickError = ref('')
+const targetGroupId = ref<string | null>(null)
+
+// 快速添加独立桌面图标，不强制开启编辑模式，不自动创建多余分组。
+async function quickAdd() {
+  if (quickAdding.value || !user.value) return
+  quickAdding.value = true
+  quickError.value = ''
+  try {
+    targetGroupId.value = null
+    editingBookmark.value = null
+    showBookmarkModal.value = true
+  } catch (error) { quickError.value = error instanceof Error ? error.message : '添加失败' }
+  finally { quickAdding.value = false }
+}
+
+// 保存书签：仅当在桌面独立新增时创建 1x1 图标组件，文件夹内新增或编辑已有书签只刷新数据。
+async function bookmarkSaved(bookmark?: Bookmark, isFolderAdd?: boolean) {
+  await loadData(activeSpaceId.value)
+  if (bookmark && !isFolderAdd && !editingBookmark.value) {
+    desktopCanvas.value?.addNavigation(bookmark)
+  }
+}
+
 // 当前空间有草稿时由用户决定是否放弃。
 function selectSpace(id: string) {
   if (id === activeSpaceId.value) return
   if (canvasDirty.value && !confirm('放弃未保存的布局修改并切换空间？')) return
   canvasDirty.value = false
   activeSpaceId.value = id
+}
+
+// 右键目标空间先切换并确认授权，再开启对应布局编辑。
+function configureSpace(id: string) {
+  selectSpace(id)
+  if (activeSpaceId.value !== id) return
+  const space = spaces.value.find(item => item.id === id)
+  if (space?.type === 'privacy' && !space.isUnlocked) { isEditMode.value = false; return }
+  isEditMode.value = true
 }
 
 // 书签弹窗控制。
@@ -81,12 +117,9 @@ const currentSpace = computed(() => {
   return spaces.value.find(s => s.id === activeSpaceId.value)
 })
 
-// 打开新增书签对话框。
-function handleAddBookmark() {
-  if (groups.value.length === 0) {
-    openCreateGroupModal()
-    return
-  }
+// 打开新增书签对话框，支持指定目标分组。
+function handleAddBookmark(groupId?: string) {
+  targetGroupId.value = groupId ?? null
   editingBookmark.value = null
   showBookmarkModal.value = true
 }
@@ -143,7 +176,7 @@ async function handleLock() {
 </script>
 
 <template>
-  <div class="home-layout">
+  <div class="home-layout" @contextmenu="desktopCanvas?.openContext($event)">
     <!-- 初始密码未修改安全提醒 -->
     <div v-if="user?.isDefaultPassword" class="default-password-banner">
       <span>安全提醒：当前正在使用默认初始密码（admin），请及时修改。</span>
@@ -158,9 +191,9 @@ async function handleLock() {
           <span>正在编辑主页</span>
         </div>
         <div class="edit-actions">
-          <button type="button" class="btn-sub" @click="showBookmarkManager = true">管理书签</button>
-          <button type="button" class="btn-sub" @click="openCreateGroupModal">新建分组</button>
-          <button type="button" class="btn-sub" @click="handleAddBookmark">+ 添加书签</button>
+          <button type="button" class="btn-sub" @click="openCreateGroupModal">+ 新建分组</button>
+          <button type="button" class="btn-sub" @click="desktopCanvas?.toggleTree()">+ 添加组件</button>
+          <button type="button" class="btn-sub" @click="showBookmarkManager = true">内容归档</button>
           <button type="button" class="btn-accent" @click="isEditMode = false">完成编辑</button>
         </div>
       </div>
@@ -193,7 +226,11 @@ async function handleLock() {
           <button type="button" class="btn-lock" @click="handleLock">锁定并返回</button>
         </div>
 
+        <p v-if="quickError" role="alert">{{ quickError }}</p>
         <DesktopCanvas
+          ref="desktopCanvas"
+          @start-edit="isEditMode = true"
+          @quick-add="quickAdd"
           :key="activeSpaceId"
           @dirty="canvasDirty = $event"
           @refresh="loadData(activeSpaceId)"
@@ -215,6 +252,7 @@ async function handleLock() {
       :is-edit-mode="isEditMode"
       @toggle-edit-mode="isEditMode = !isEditMode"
       @select-space="selectSpace"
+      @configure-space="configureSpace"
       @logout="handleLogout"
     />
 
@@ -224,8 +262,9 @@ async function handleLock() {
       :editing-bookmark="editingBookmark"
       :groups="groups"
       :current-space-id="activeSpaceId"
+      :target-group-id="targetGroupId"
       @close="showBookmarkModal = false"
-      @saved="loadData(activeSpaceId)"
+      @saved="bookmarkSaved"
     />
 
     <BookmarkManager :show="showBookmarkManager" :space-id="activeSpaceId" @close="showBookmarkManager = false" />

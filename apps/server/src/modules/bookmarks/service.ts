@@ -177,17 +177,28 @@ export function createBookmarkService(db: AppDatabase) {
       return rows.map(mapBookmarkRow)
     },
 
-    // 创建书签。
+    // 创建书签，支持未分组独立书签与指定分组书签。
     createBookmark(input: CreateBookmarkInput, isUnlocked: boolean): Bookmark {
       assertSafeUrl(input.url)
-      const group = db.select().from(bookmarkGroups).where(eq(bookmarkGroups.id, input.groupId)).get()
-      if (!group) throw new BookmarkError(404, "指定的分组不存在")
-      assertSpacePermission(group.spaceId, isUnlocked)
+      let targetSpaceId = input.spaceId ?? "default"
+      let targetGroupId: string | null = null
+
+      if (input.groupId) {
+        const group = db.select().from(bookmarkGroups).where(eq(bookmarkGroups.id, input.groupId)).get()
+        if (!group) throw new BookmarkError(404, "指定的分组不存在")
+        assertSpacePermission(group.spaceId, isUnlocked)
+        targetSpaceId = group.spaceId
+        targetGroupId = group.id
+      } else {
+        assertSpacePermission(targetSpaceId, isUnlocked)
+      }
 
       const now = Date.now()
+      const maxOrderConditions = [eq(bookmarks.spaceId, targetSpaceId)]
+      if (targetGroupId) maxOrderConditions.push(eq(bookmarks.groupId, targetGroupId))
       const maxOrderRow = db.select({ sortOrder: bookmarks.sortOrder })
         .from(bookmarks)
-        .where(eq(bookmarks.groupId, input.groupId))
+        .where(and(...maxOrderConditions))
         .orderBy(desc(bookmarks.sortOrder))
         .limit(1)
         .get()
@@ -198,8 +209,8 @@ export function createBookmarkService(db: AppDatabase) {
 
       db.insert(bookmarks).values({
         id,
-        groupId: input.groupId,
-        spaceId: group.spaceId,
+        groupId: targetGroupId,
+        spaceId: targetSpaceId,
         title: input.title.trim(),
         url: input.url.trim(),
         iconUrl: input.iconUrl?.trim() ?? "",
@@ -233,11 +244,15 @@ export function createBookmarkService(db: AppDatabase) {
       if (input.isPublic !== undefined) values.isPublic = input.isPublic ? 1 : 0
 
       if (input.groupId !== undefined && input.groupId !== bookmark.groupId) {
-        const targetGroup = db.select().from(bookmarkGroups).where(eq(bookmarkGroups.id, input.groupId)).get()
-        if (!targetGroup) throw new BookmarkError(404, "目标分组不存在")
-        assertSpacePermission(targetGroup.spaceId, isUnlocked)
-        values.groupId = targetGroup.id
-        values.spaceId = targetGroup.spaceId
+        if (input.groupId === null) {
+          values.groupId = null
+        } else {
+          const targetGroup = db.select().from(bookmarkGroups).where(eq(bookmarkGroups.id, input.groupId)).get()
+          if (!targetGroup) throw new BookmarkError(404, "目标分组不存在")
+          assertSpacePermission(targetGroup.spaceId, isUnlocked)
+          values.groupId = targetGroup.id
+          values.spaceId = targetGroup.spaceId
+        }
       }
 
       db.update(bookmarks).set(values).where(eq(bookmarks.id, id)).run()

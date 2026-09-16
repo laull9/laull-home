@@ -27,9 +27,11 @@ export function createDesktopService(db: AppDatabase) {
         }
         try { new Intl.DateTimeFormat('zh-CN', { timeZone: node.timezone }) } catch { throw new BookmarkError(400, '时区无效') }
         if (node.referenceId) {
-          const table = node.type === 'bookmark' ? bookmarks : bookmarkGroups
-          const row = db.select({ spaceId: table.spaceId }).from(table).where(eq(table.id, node.referenceId)).get()
-          if (!row || row.spaceId !== spaceId) throw new BookmarkError(400, '书签或分组不属于当前空间')
+          const table = node.type === 'bookmark' ? bookmarks : node.type === 'folder' ? bookmarkGroups : null
+          if (table) {
+            const row = db.select({ spaceId: table.spaceId }).from(table).where(eq(table.id, node.referenceId)).get()
+            if (!row || row.spaceId !== spaceId) throw new BookmarkError(400, '书签或分组不属于当前空间')
+          }
         }
         for (const [key, p] of Object.entries(node.layouts)) {
           if (p.x + p.w > BREAKPOINTS[key as keyof typeof BREAKPOINTS]) throw new BookmarkError(400, '组件超出网格边界')

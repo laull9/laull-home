@@ -18,15 +18,21 @@ export const widgetStyleSchema = Type.Object({
   border: Type.Number({ minimum: 0, maximum: 4 }),
   color: Type.String({ pattern: '^$|^#[0-9a-fA-F]{6}$' }),
   background: Type.String({ pattern: '^$|^#[0-9a-fA-F]{6}$' }),
+  frameless: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false })
 // 组件节点仅支持已实现的白名单渲染器。
 export const widgetSchema = Type.Object({
   id: Type.String({ pattern: '^[a-zA-Z0-9_-]{1,64}$' }),
-  type: Type.Union([Type.Literal('search'), Type.Literal('bookmark'), Type.Literal('folder'), Type.Literal('note'), Type.Literal('clock'), Type.Literal('calendar')]),
+  type: Type.Union([
+    Type.Literal('search'), Type.Literal('bookmark'), Type.Literal('folder'),
+    Type.Literal('note'), Type.Literal('clock'), Type.Literal('calendar'),
+    Type.Literal('countdown'), Type.Literal('todo'),
+  ]),
   title: Type.String({ minLength: 1, maxLength: 80 }),
   content: Type.String({ maxLength: 8000 }), referenceId: Type.String({ maxLength: 64 }),
   timezone: Type.String({ maxLength: 64 }), hour12: Type.Boolean(),
   stackId: Type.String({ maxLength: 64 }), css: Type.String({ maxLength: 4000 }),
+  variant: Type.Optional(Type.String({ maxLength: 64 })),
   style: Type.Optional(widgetStyleSchema),
   layouts: Type.Object({
     mobile: Type.Optional(placementSchema), tablet: Type.Optional(placementSchema),
@@ -45,20 +51,22 @@ export type WidgetNode = Static<typeof widgetSchema>
 export type Desktop = Static<typeof desktopSchema>
 // 坐标类型。
 export type Placement = Static<typeof placementSchema>
-// 目录定义尺寸与默认内容。
+// 目录定义尺寸、分类与默认内容。
 export const WIDGET_CATALOG = [
-  { type: 'search', title: '搜索', w: 8, h: 1 },
-  { type: 'bookmark', title: '图标书签', w: 1, h: 1 },
-  { type: 'folder', title: '书签文件夹', w: 2, h: 2 },
-  { type: 'note', title: '便签', w: 2, h: 2 },
-  { type: 'clock', title: '时钟', w: 2, h: 1 },
-  { type: 'calendar', title: '日历', w: 3, h: 3 },
+  { type: 'search', title: '搜索', category: 'nav', w: 8, h: 1, desc: '集成搜索引擎与快捷指令' },
+  { type: 'bookmark', title: '图标书签', category: 'nav', w: 1, h: 1, desc: '单书签捷径，支持大图与胶囊' },
+  { type: 'folder', title: '书签文件夹', category: 'nav', w: 2, h: 2, desc: '分组收纳盒，支持抽屉与九宫格' },
+  { type: 'clock', title: '时钟', category: 'time', w: 2, h: 1, desc: '数码、模拟表盘、翻页与流逝环' },
+  { type: 'calendar', title: '日历', category: 'time', w: 3, h: 3, desc: '月度日程网格与当日标记' },
+  { type: 'countdown', title: '倒数纪念日', category: 'tools', w: 2, h: 2, desc: '目标日倒数与流逝进度' },
+  { type: 'todo', title: '待办清单', category: 'tools', w: 2, h: 2, desc: '桌面随手勾选待办任务' },
+  { type: 'note', title: '便签', category: 'tools', w: 2, h: 2, desc: '桌面便笺与备忘草稿' },
 ] as const
 // 创建继承全局主题的节点。
-export function newWidget(type: WidgetNode['type'], id: string): WidgetNode {
+export function newWidget(type: WidgetNode['type'], id: string, variant?: string): WidgetNode {
   const entry = WIDGET_CATALOG.find(item => item.type === type)!
   return { id, type, title: entry.title, content: '', referenceId: '', timezone: 'Asia/Shanghai', hour12: false,
-    stackId: '', css: '', layouts: { desktop: { x: 0, y: 0, w: entry.w, h: entry.h, pinned: false } } }
+    stackId: '', css: '', ...(variant ? { variant } : {}), layouts: { desktop: { x: 0, y: 0, w: entry.w, h: entry.h, pinned: false } } }
 }
 // 固定节点优先占位，碰撞与越界自动寻找下一处空位。
 export function arrangeNodes(nodes: WidgetNode[], breakpoint: Breakpoint): Map<string, Placement> {

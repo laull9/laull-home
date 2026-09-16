@@ -148,3 +148,25 @@ test('拖拽合并书签在事务内创建文件夹并拒绝过期与非法合�
   expect((await request('/desktop/default/merge', 'POST', body, cookie)).status).toBe(409)
   expect((await (await request('/bookmarks/groups', 'GET', undefined, cookie)).json()).groups).toHaveLength(2)
 })
+
+test('支持倒数日、待办清单、多形态 variant 及 frameless 无底座组件持久化', async () => {
+  const { request, cookie } = await fixture()
+  const clock = newWidget('clock', 'clock-analog', 'analog')
+  clock.style = { opacity: 100, blur: 0, radius: 0, padding: 0, border: 0, color: '', background: '', frameless: true }
+  const countdown = newWidget('countdown', 'countdown-1')
+  countdown.content = '2026-10-01'
+  const todo = newWidget('todo', 'todo-1')
+  todo.content = JSON.stringify([{ id: '1', text: '发布新功能', done: true }])
+  const folder = newWidget('folder', 'folder-launchpad', 'launchpad')
+  const bookmark = newWidget('bookmark', 'bm-pill', 'pill')
+  const value = { revision: 0, nodes: [clock, countdown, todo, folder, bookmark], templates: [] }
+  const saved = await request('/desktop/default', 'PUT', value, cookie)
+  expect(saved.status).toBe(200)
+  const read = await (await request('/desktop/default', 'GET', undefined, cookie)).json() as Desktop
+  expect(read.nodes).toHaveLength(5)
+  expect(read.nodes.find(n => n.id === 'clock-analog')?.variant).toBe('analog')
+  expect(read.nodes.find(n => n.id === 'clock-analog')?.style?.frameless).toBe(true)
+  expect(read.nodes.find(n => n.id === 'countdown-1')?.content).toBe('2026-10-01')
+  expect(read.nodes.find(n => n.id === 'todo-1')?.type).toBe('todo')
+})
+

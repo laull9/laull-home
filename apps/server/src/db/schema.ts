@@ -53,6 +53,10 @@ export const userSettings = sqliteTable('user_settings', {
   themeConfig: text('theme_config').notNull().default('{}'),
   // 自定义 CSS 覆盖样式规则。
   customCss: text('custom_css').notNull().default(''),
+  // 壁纸是否自动定时轮换：0 关闭，1 开启。
+  wallpaperAutoRotate: integer('wallpaper_auto_rotate').notNull().default(0),
+  // 壁纸定时轮换间隔时间（分钟）。
+  wallpaperRotateInterval: integer('wallpaper_rotate_interval').notNull().default(60),
   // 更新时间戳。
   updatedAt: integer('updated_at').notNull(),
 })
@@ -150,8 +154,8 @@ export const bookmarkGroups = sqliteTable('bookmark_groups', {
 export const bookmarks = sqliteTable('bookmarks', {
   // 书签唯一标识。
   id: text('id').primaryKey(),
-  // 所属分组标识。
-  groupId: text('group_id').notNull().references(() => bookmarkGroups.id, { onDelete: 'cascade' }),
+  // 所属分组标识，未归入文件夹时为 null。
+  groupId: text('group_id').references(() => bookmarkGroups.id, { onDelete: 'set null' }),
   // 所属空间标识。
   spaceId: text('space_id').notNull().references(() => spaces.id, { onDelete: 'cascade' }),
   // 书签展示标题。
@@ -183,6 +187,8 @@ export const searchEngines = sqliteTable('search_engines', {
   name: text('name').notNull(),
   // 搜索查询地址模板，包含 %s。
   urlTemplate: text('url_template').notNull(),
+  // 搜索建议联想地址模板，包含 %s。
+  suggestionUrl: text('suggestion_url').notNull().default(''),
   // 快捷 Bang 语法缩写。
   bang: text('bang').notNull().default(''),
   // 是否为默认搜索引擎。
@@ -210,3 +216,25 @@ export const desktops = sqliteTable('desktops', {
   // 最后更新时间。
   updatedAt: integer('updated_at').notNull(),
 })
+
+// 图片池壁纸表定义。
+export const wallpapers = sqliteTable('wallpapers', {
+  // 壁纸唯一标识。
+  id: text('id').primaryKey(),
+  // 所属用户编号。
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // 壁纸名称。
+  name: text('name').notNull(),
+  // 壁纸访问地址或相对静态路径。
+  url: text('url').notNull(),
+  // 壁纸来源：upload 本地上传或 url 外部导入。
+  sourceType: text('source_type').notNull(),
+  // 创建时间戳。
+  createdAt: integer('created_at').notNull(),
+  // 更新时间戳。
+  updatedAt: integer('updated_at').notNull(),
+}, table => [
+  // 按所属用户索引壁纸。
+  index('idx_wallpapers_user').on(table.userId),
+])
+

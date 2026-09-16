@@ -1,10 +1,18 @@
 <script setup lang="ts">
-import { looksLikeUrl, isValidSafeUrl, type SearchEngine } from "@laull-home/shared"
+import { nextTick } from "vue"
+import { looksLikeUrl, type SearchEngine } from "@laull-home/shared"
+import SearchEngineModal from "./SearchEngineModal.vue"
+import SearchEngineDropdown from "./SearchEngineDropdown.vue"
+import SearchSuggestions from "./SearchSuggestions.vue"
+import EngineIcon from "./EngineIcon.vue"
 
-const { engines, defaultEngine, fetchEngines } = useSearch()
+const { engines, defaultEngine, fetchEngines, fetchSuggestions, executeSearch } = useSearch()
 
 // 搜索主输入内容。
 const searchQuery = ref("")
+
+// 键盘上下导航时暂存的用户手工输入原词。
+const originalQuery = ref("")
 
 // 当前选中的临时活动搜索引擎。
 const selectedEngine = ref<SearchEngine | null>(null)
@@ -12,11 +20,32 @@ const selectedEngine = ref<SearchEngine | null>(null)
 // 搜索引擎下拉平铺面板展开状态。
 const isDropdownOpen = ref(false)
 
-// 添加自定义搜索引擎弹窗显隐状态。
-const showAddModal = ref(false)
+// 搜索建议联想词列表。
+const suggestions = ref<string[]>([])
+
+// 联想建议加载中状态。
+const isSuggestionsLoading = ref(false)
+
+// 联想建议下拉栏展开状态。
+const isSuggestionsOpen = ref(false)
+
+// 键盘当前选中的建议项索引。
+const selectedSuggestionIndex = ref(-1)
+
+// 搜索引擎弹窗显隐状态。
+const showEngineModal = ref(false)
+
+// 当前编辑的引擎实例（null 表示新增模式）。
+const editingEngine = ref<SearchEngine | null>(null)
 
 // 搜索栏容器引用，用于处理点击外部关闭下拉面板。
 const searchContainerRef = ref<HTMLElement | null>(null)
+
+// 建议防抖定时器引用。
+let debounceTimer: ReturnType<typeof setTimeout> | null = null
+
+// 是否正处于键盘按键导航挑选联想词过程中。
+let isNavigatingSuggestions = false
 
 // 最终生效的活动搜索引擎。
 const activeEngine = computed<SearchEngine | null>(() => {
@@ -31,18 +60,61 @@ const placeholderText = computed(() => {
   return "输入搜索内容或网址..."
 })
 
+// 触发联想词拉取。
+async function triggerFetchSuggestions(text: string) {
+  if (debounceTimer) clearTimeout(debounceTimer)
+  const trimmed = text.trim()
+  if (!trimmed || trimmed.startsWith("!") || looksLikeUrl(trimmed) || isDropdownOpen.value) {
+    suggestions.value = []
+    isSuggestionsOpen.value = false
+    selectedSuggestionIndex.value = -1
+    return
+  }
+  debounceTimer = setTimeout(async () => {
+    isSuggestionsLoading.value = true
+    try {
+      const items = await fetchSuggestions(trimmed, activeEngine.value?.id)
+      suggestions.value = items
+      isSuggestionsOpen.value = items.length > 0 && !isDropdownOpen.value
+      selectedSuggestionIndex.value = -1
+    } finally {
+      isSuggestionsLoading.value = false
+    }
+  }, 150)
+}
+
+// 监听搜索词变化并防抖请求建议。
+watch(searchQuery, (newVal) => {
+  if (isNavigatingSuggestions) return
+  if (selectedSuggestionIndex.value === -1) {
+    originalQuery.value = newVal
+  }
+  triggerFetchSuggestions(newVal)
+})
+
+// 监听活动搜索引擎切换，刷新对应联想建议。
+watch(activeEngine, () => {
+  if (searchQuery.value) {
+    triggerFetchSuggestions(searchQuery.value)
+  }
+})
+
 onMounted(async () => {
   await fetchEngines()
   document.addEventListener("click", handleClickOutside)
 })
 
 onUnmounted(() => {
+  if (debounceTimer) clearTimeout(debounceTimer)
   document.removeEventListener("click", handleClickOutside)
 })
 
 // 切换下拉面板显隐。
 function toggleDropdown() {
   isDropdownOpen.value = !isDropdownOpen.value
+  if (isDropdownOpen.value) {
+    isSuggestionsOpen.value = false
+  }
 }
 
 // 选择特定搜索引擎。
@@ -51,10 +123,23 @@ function handleSelectEngine(engine: SearchEngine) {
   isDropdownOpen.value = false
 }
 
+// 处理引擎批量删除后的状态联动。
+function handleEngineDeleted(deletedIds: string[]) {
+  if (selectedEngine.value && deletedIds.includes(selectedEngine.value.id)) {
+    selectedEngine.value = null
+  }
+}
+
 // 打开新增自定义搜索引擎通用弹窗。
 function openAddModal() {
-  isDropdownOpen.value = false
-  showAddModal.value = true
+  editingEngine.value = null
+  showEngineModal.value = true
+}
+
+// 打开编辑搜索引擎弹窗。
+function openEditModal(engine: SearchEngine) {
+  editingEngine.value = engine
+  showEngineModal.value = true
 }
 
 // 处理自定义搜索引擎创建完成。
@@ -62,49 +147,129 @@ function handleEngineCreated(engine: SearchEngine) {
   selectedEngine.value = engine
 }
 
+// 处理自定义搜索引擎更新完成。
+function handleEngineUpdated(engine: SearchEngine) {
+  if (selectedEngine.value && selectedEngine.value.id === engine.id) {
+    selectedEngine.value = engine
+  }
+}
+
 // 清空当前搜索输入内容。
 function handleClearQuery() {
   searchQuery.value = ""
+  originalQuery.value = ""
+  suggestions.value = []
+  isSuggestionsOpen.value = false
+  selectedSuggestionIndex.value = -1
 }
 
-// 处理点击容器外部自动收起下拉面板。
-function handleClickOutside(event: MouseEvent) {
-  if (searchContainerRef.value && !searchContainerRef.value.contains(event.target as Node)) {
-    isDropdownOpen.value = false
+// 输入框聚焦时若已有建议则展开。
+function handleInputFocus() {
+  if (suggestions.value.length > 0 && searchQuery.value.trim() && !isDropdownOpen.value) {
+    isSuggestionsOpen.value = true
   }
+}
+
+// 处理输入框真实手工输入，重置选中状态。
+function handleManualInput() {
+  selectedSuggestionIndex.value = -1
+}
+
+// 步进联想词选定项，期间不触发联想词重新拉取与刷新。
+function stepSuggestion(delta: 1 | -1) {
+  const len = suggestions.value.length
+  if (len === 0) return
+  isNavigatingSuggestions = true
+  if (delta === 1) {
+    selectedSuggestionIndex.value = selectedSuggestionIndex.value < len - 1 ? selectedSuggestionIndex.value + 1 : -1
+  } else {
+    selectedSuggestionIndex.value = selectedSuggestionIndex.value > 0 ? selectedSuggestionIndex.value - 1 : (selectedSuggestionIndex.value === 0 ? -1 : len - 1)
+  }
+  searchQuery.value = selectedSuggestionIndex.value >= 0 ? (suggestions.value[selectedSuggestionIndex.value] ?? originalQuery.value) : originalQuery.value
+  nextTick(() => {
+    isNavigatingSuggestions = false
+  })
+}
+
+// 键盘导航选择联想项，拦截默认跳焦与失焦。
+function handleKeyDown(event: KeyboardEvent) {
+  if (!isSuggestionsOpen.value || suggestions.value.length === 0) {
+    return
+  }
+
+  if (event.key === "Tab") {
+    event.preventDefault()
+    stepSuggestion(event.shiftKey ? -1 : 1)
+  } else if (event.key === "ArrowDown" || event.key === "ArrowRight") {
+    event.preventDefault()
+    stepSuggestion(1)
+  } else if (event.key === "ArrowUp" || event.key === "ArrowLeft") {
+    event.preventDefault()
+    stepSuggestion(-1)
+  } else if (event.key === "Escape") {
+    isSuggestionsOpen.value = false
+    selectedSuggestionIndex.value = -1
+    searchQuery.value = originalQuery.value
+  }
+}
+
+// 直接选中建议词执行搜索。
+function handleSelectSuggestion(keyword: string) {
+  searchQuery.value = keyword
+  isSuggestionsOpen.value = false
+  selectedSuggestionIndex.value = -1
+  handleSearch()
+}
+
+// 仅填入建议词到搜索框。
+function handleFillSuggestion(keyword: string) {
+  searchQuery.value = keyword
+  originalQuery.value = keyword
+  selectedSuggestionIndex.value = -1
+}
+
+// 处理点击容器外部自动收起下拉面板与建议栏。
+function handleClickOutside(event: MouseEvent) {
+  // 如果搜索引擎编辑/新增弹窗处于打开状态，保持下拉面板，绝不收起。
+  if (showEngineModal.value) return
+
+  const target = event.target as HTMLElement | null
+  if (!target || !searchContainerRef.value) return
+
+  // 1. 如果点击目标或事件传播路径位于搜索容器内，保持展开。
+  const path = event.composedPath?.() ?? []
+  if (path.includes(searchContainerRef.value) || searchContainerRef.value.contains(target)) {
+    return
+  }
+  // 2. 如果点击的目标节点已脱离主文档，判定为内部交互，不关闭。
+  if (!document.contains(target)) {
+    return
+  }
+
+  // 3. 如果点击的是模态对话框遮罩或弹窗内容，不关闭下拉面板。
+  if (target.closest?.('dialog, .modal-backdrop')) {
+    return
+  }
+
+  isDropdownOpen.value = false
+  isSuggestionsOpen.value = false
 }
 
 // 执行搜索跳转或直接打开网址。
 function handleSearch() {
   const trimmed = searchQuery.value.trim()
   if (!trimmed) return
+  isSuggestionsOpen.value = false
+  selectedSuggestionIndex.value = -1
 
-  // 1. 优先匹配 Bang 快捷搜索
-  if (trimmed.startsWith("!")) {
-    const spaceIndex = trimmed.indexOf(" ")
-    const bang = spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex)
-    const keyword = spaceIndex === -1 ? "" : trimmed.slice(spaceIndex + 1).trim()
-    const matchedEngine = engines.value.find(e => e.bang && e.bang.toLowerCase() === bang.toLowerCase())
-    if (matchedEngine) {
-      const target = matchedEngine.urlTemplate.replace("%s", encodeURIComponent(keyword))
-      window.open(target, "_blank", "noopener,noreferrer")
-      return
-    }
+  const parsed = executeSearch(trimmed)
+  let targetUrl = parsed.targetUrl
+  if (parsed.type === "search" && selectedEngine.value) {
+    targetUrl = selectedEngine.value.urlTemplate.replace("%s", encodeURIComponent(trimmed))
   }
-
-  // 2. 检查是否为合法网址
-  if (looksLikeUrl(trimmed)) {
-    const finalUrl = /^https?:\/\//i.test(trimmed) ? trimmed : "https://" + trimmed
-    if (isValidSafeUrl(finalUrl)) {
-      window.open(finalUrl, "_blank", "noopener,noreferrer")
-      return
-    }
+  if (targetUrl) {
+    window.open(targetUrl, "_blank", "noopener,noreferrer")
   }
-
-  // 3. 提交至当前选中的搜索引擎
-  const template = activeEngine.value?.urlTemplate ?? "https://www.google.com/search?q=%s"
-  const target = template.replace("%s", encodeURIComponent(trimmed))
-  window.open(target, "_blank", "noopener,noreferrer")
 }
 </script>
 
@@ -122,6 +287,7 @@ function handleSearch() {
         <EngineIcon
           :name="activeEngine?.name ?? 'Google'"
           :id="activeEngine?.id"
+          :url="activeEngine?.urlTemplate"
           :size="20"
         />
         <span class="dropdown-arrow" :class="{ 'arrow-up': isDropdownOpen }">▾</span>
@@ -134,6 +300,9 @@ function handleSearch() {
         class="search-input"
         :placeholder="placeholderText"
         autofocus
+        @input="handleManualInput"
+        @focus="handleInputFocus"
+        @keydown="handleKeyDown"
       >
 
       <!-- 清除按钮 -->
@@ -159,39 +328,42 @@ function handleSearch() {
       </button>
     </form>
 
-    <!-- 下拉平铺选择面板（与搜索框严格等宽） -->
+    <!-- 自动关联关键字模糊匹配建议下拉栏（与搜索框等宽贴合） -->
     <transition name="panel-drop">
-      <div v-if="isDropdownOpen" class="engine-dropdown-panel">
-        <div class="engine-grid">
-          <button
-            v-for="engine in engines"
-            :key="engine.id"
-            type="button"
-            class="engine-card"
-            :class="{ active: activeEngine?.id === engine.id }"
-            @click="handleSelectEngine(engine)"
-          >
-            <EngineIcon :name="engine.name" :id="engine.id" :size="20" />
-            <span class="card-name" :title="engine.name">{{ engine.name }}</span>
-            <span v-if="engine.bang" class="card-bang">!{{ engine.bang }}</span>
-          </button>
-        </div>
-
-        <!-- 底部添加搜索引擎按钮 -->
-        <div class="dropdown-footer">
-          <button type="button" class="btn-add-engine" @click="openAddModal">
-            + 添加自定义搜索引擎
-          </button>
-        </div>
-      </div>
+      <SearchSuggestions
+        v-if="isSuggestionsOpen && !isDropdownOpen && suggestions.length > 0"
+        :suggestions="suggestions"
+        :query="searchQuery"
+        :selected-index="selectedSuggestionIndex"
+        :active-engine="activeEngine"
+        :loading="isSuggestionsLoading"
+        @select="handleSelectSuggestion"
+        @fill="handleFillSuggestion"
+        @hover="selectedSuggestionIndex = $event"
+      />
     </transition>
 
-    <!-- 添加自定义搜索引擎通用弹窗 -->
+    <!-- 下拉平铺选择面板（与搜索框严格等宽） -->
+    <transition name="panel-drop">
+      <SearchEngineDropdown
+        v-if="isDropdownOpen"
+        :engines="engines"
+        :active-engine="activeEngine"
+        @select="handleSelectEngine"
+        @open-add="openAddModal"
+        @open-edit="openEditModal"
+        @engine-deleted="handleEngineDeleted"
+      />
+    </transition>
+
+    <!-- 搜索引擎配置通用弹窗（支持新增与编辑） -->
     <SearchEngineModal
-      :show="showAddModal"
+      :show="showEngineModal"
+      :engine="editingEngine"
       :close-on-click-outside="true"
-      @close="showAddModal = false"
+      @close="showEngineModal = false"
       @created="handleEngineCreated"
+      @updated="handleEngineUpdated"
     />
   </div>
 </template>
@@ -211,19 +383,18 @@ function handleSearch() {
   display: flex;
   align-items: center;
   height: 52px;
-  background: var(--lh-surface);
+  background: color-mix(in srgb, var(--lh-surface) var(--lh-surface-opacity, 92%), transparent);
   border: 1px solid var(--lh-border);
   border-radius: var(--lh-radius-full);
-  box-shadow: var(--lh-shadow-card);
-  backdrop-filter: blur(var(--lh-blur));
+  box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-card);
+  backdrop-filter: blur(var(--lh-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%);
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
 .search-form:focus-within {
   border-color: var(--lh-accent);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15), var(--lh-shadow-card);
+  box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), 0 0 0 3px color-mix(in srgb, var(--lh-accent) 20%, transparent), var(--lh-shadow-hover);
 }
-
 .engine-trigger {
   display: flex;
   align-items: center;
@@ -236,18 +407,15 @@ function handleSearch() {
   transition: background 0.15s ease;
   flex-shrink: 0;
 }
-
 .engine-trigger:hover,
 .trigger-active {
   background: var(--lh-surface-hover);
 }
-
 .dropdown-arrow {
   font-size: 11px;
   color: var(--lh-text-secondary);
   transition: transform 0.2s ease;
 }
-
 .arrow-up {
   transform: rotate(180deg);
 }
@@ -317,91 +485,6 @@ function handleSearch() {
   height: 18px;
 }
 
-.engine-dropdown-panel {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 16px;
-  right: 16px;
-  background: var(--lh-surface);
-  border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-lg);
-  box-shadow: var(--lh-shadow-dropdown);
-  backdrop-filter: blur(var(--lh-blur));
-  padding: 14px;
-  box-sizing: border-box;
-  z-index: 100;
-}
-
-.engine-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-  gap: 8px;
-  max-height: 260px;
-  overflow-y: auto;
-}
-
-.engine-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: var(--lh-radius-md);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--lh-text);
-  cursor: pointer;
-  text-align: left;
-  transition: all 0.15s ease;
-}
-
-.engine-card:hover {
-  background: var(--lh-surface-hover);
-  border-color: var(--lh-border);
-}
-
-.engine-card.active {
-  background: var(--lh-surface-active);
-  border-color: var(--lh-border);
-  font-weight: 500;
-}
-
-.card-name {
-  flex: 1;
-  font-size: 13px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.card-bang {
-  font-size: 11px;
-  color: var(--lh-text-muted);
-}
-
-.dropdown-footer {
-  margin-top: 12px;
-  border-top: 1px solid var(--lh-border);
-  padding-top: 10px;
-  text-align: center;
-}
-
-.btn-add-engine {
-  background: none;
-  border: none;
-  color: var(--lh-accent);
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
-  padding: 4px 10px;
-  border-radius: var(--lh-radius-sm);
-  transition: background 0.15s ease;
-}
-
-.btn-add-engine:hover {
-  background: var(--lh-surface-hover);
-}
-
-
 .panel-drop-enter-active,
 .panel-drop-leave-active {
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -413,4 +496,3 @@ function handleSearch() {
   transform: translateY(-8px);
 }
 </style>
-

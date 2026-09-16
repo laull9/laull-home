@@ -4,6 +4,7 @@ import { loadConfig } from "../src/config"
 import { openDatabase, type AppDatabase } from "../src/db"
 import { createUser } from "../src/modules/auth/service"
 import { assertSafeOutboundUrl, isPrivateIp } from "../src/modules/favicon/service"
+import { decodeBufferWithEncoding, parseSuggestionsPayload, resolveSuggestionTemplate } from "../src/modules/search/service"
 import { parseSearchQuery, type SearchEngine } from "@laull-home/shared"
 
 const databases: AppDatabase[] = []
@@ -86,6 +87,41 @@ describe("书签与分组 CRUD 及排序", () => {
     expect(deleteGroupRes.status).toBe(200)
     const remainingBms = await (await request("/bookmarks?spaceId=default&groupId=" + group.id, "GET", undefined, cookie)).json()
     expect(remainingBms.bookmarks).toHaveLength(0)
+  })
+
+  test("支持无分组独立书签创建、移入分组与移出分组", async () => {
+    const { request, login } = await fixture()
+    const { cookie } = await login()
+
+    // 1. 创建未分组独立书签
+    const createRes = await request("/bookmarks", "POST", {
+      spaceId: "default",
+      title: "独立桌面图标",
+      url: "https://example.org",
+    }, cookie)
+    expect(createRes.status).toBe(200)
+    const standaloneBm = (await createRes.json()).bookmark
+    expect(standaloneBm.groupId).toBeNull()
+    expect(standaloneBm.title).toBe("独立桌面图标")
+
+    // 2. 查询默认空间书签列表包含该独立书签
+    const listRes = await request("/bookmarks?spaceId=default", "GET", undefined, cookie)
+    const allBms = (await listRes.json()).bookmarks
+    expect(allBms.some((b: { id: string; groupId: string | null }) => b.id === standaloneBm.id && b.groupId === null)).toBe(true)
+
+    // 3. 创建文件夹分组并将独立书签移入分组
+    const groupRes = await request("/bookmarks/groups", "POST", { spaceId: "default", name: "收纳文件夹" }, cookie)
+    const folderGroup = (await groupRes.json()).group
+    const moveIntoRes = await request("/bookmarks/" + standaloneBm.id, "PUT", { groupId: folderGroup.id }, cookie)
+    expect(moveIntoRes.status).toBe(200)
+    const movedBm = (await moveIntoRes.json()).bookmark
+    expect(movedBm.groupId).toBe(folderGroup.id)
+
+    // 4. 将书签移出分组成为独立书签
+    const moveOutRes = await request("/bookmarks/" + standaloneBm.id, "PUT", { groupId: null }, cookie)
+    expect(moveOutRes.status).toBe(200)
+    const restoredBm = (await moveOutRes.json()).bookmark
+    expect(restoredBm.groupId).toBeNull()
   })
 })
 
@@ -172,8 +208,8 @@ describe("搜索引擎与 Bang 匹配", () => {
 
   test("搜索输入解析器准确识别 URL、Bang 与常规搜索", () => {
     const engines: SearchEngine[] = [
-      { id: "1", name: "Google", urlTemplate: "https://www.google.com/search?q=%s", bang: "g", isDefault: true, sortOrder: 1, createdAt: 0, updatedAt: 0 },
-      { id: "2", name: "GitHub", urlTemplate: "https://github.com/search?q=%s", bang: "gh", isDefault: false, sortOrder: 2, createdAt: 0, updatedAt: 0 },
+      { id: "1", name: "Google", urlTemplate: "https://www.google.com/search?q=%s", suggestionUrl: "", bang: "g", isDefault: true, sortOrder: 1, createdAt: 0, updatedAt: 0 },
+      { id: "2", name: "GitHub", urlTemplate: "https://github.com/search?q=%s", suggestionUrl: "", bang: "gh", isDefault: false, sortOrder: 2, createdAt: 0, updatedAt: 0 },
     ]
 
     // 1. Bang 语法识别
@@ -212,4 +248,139 @@ describe("Favicon 出站限制与 SSRF 防护", () => {
     await expect(assertSafeOutboundUrl("http://192.168.1.1/favicon.ico")).rejects.toThrow("内网")
     await expect(assertSafeOutboundUrl("ftp://example.com/icon.png")).rejects.toThrow("协议")
   })
+
+  test("搜索引擎模板地址解析站点 Origin 且阻断非法协议", () => {
+    function extractOrigin(urlStr?: string): string {
+      if (!urlStr) return ""
+      try {
+        const raw = urlStr.replace(/%s.*/, "").trim()
+        let parsed: URL
+        if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) {
+          parsed = new URL(raw)
+        } else {
+          parsed = new URL("https://" + raw)
+        }
+        if (['http:', 'https:'].includes(parsed.protocol)) return parsed.origin
+      } catch { /* 忽略格式不合法地址。 */ }
+      return ""
+    }
+
+    expect(extractOrigin("https://www.google.com/search?q=%s")).toBe("https://www.google.com")
+    expect(extractOrigin("https://github.com/search?q=%s")).toBe("https://github.com")
+    expect(extractOrigin("https://cn.bing.com/search?q=%s")).toBe("https://cn.bing.com")
+    expect(extractOrigin("http://example.com/search?k=%s&p=1")).toBe("http://example.com")
+    expect(extractOrigin("www.baidu.com/s?wd=%s")).toBe("https://www.baidu.com")
+    expect(extractOrigin("javascript:alert(1)")).toBe("")
+    expect(extractOrigin("file:///etc/hosts")).toBe("")
+    expect(extractOrigin("data:text/html,<h1>hi</h1>")).toBe("")
+  })
 })
+
+describe("多搜索引擎建议与联想匹配", () => {
+  test("解析主流及自定义搜索引擎多样化响应数据", () => {
+    // 1. OpenSearch 标准格式
+    const openSearchJson = JSON.stringify(["bun", ["bun js", "bun test", "bun install"]])
+    expect(parseSuggestionsPayload(openSearchJson)).toEqual(["bun js", "bun test", "bun install"])
+
+    // 2. 带有 JSONP 包装的百度/搜狗格式
+    const jsonpData = `window.bdsug.sug(${JSON.stringify(["vue", ["vue3", "vue router", "vuex"]])});`
+    expect(parseSuggestionsPayload(jsonpData)).toEqual(["vue3", "vue router", "vuex"])
+
+    // 3. 百度 sugrec 格式
+    const baiduSugrec = JSON.stringify({ q: "react", g: [{ q: "react native" }, { q: "react router" }] })
+    expect(parseSuggestionsPayload(baiduSugrec)).toEqual(["react native", "react router"])
+
+    // 4. 哔哩哔哩格式
+    const bilibiliData = JSON.stringify({
+      code: 0,
+      result: {
+        tag: [{ value: "elysia 教程" }, { value: "elysia bun" }],
+      },
+    })
+    expect(parseSuggestionsPayload(bilibiliData)).toEqual(["elysia 教程", "elysia bun"])
+
+    // 5. GitHub 格式
+    const githubData = JSON.stringify({
+      items: [{ full_name: "oven-sh/bun" }, { full_name: "elysiajs/elysia" }],
+    })
+    expect(parseSuggestionsPayload(githubData)).toEqual(["oven-sh/bun", "elysiajs/elysia"])
+
+    // 6. 异常或空白格式优雅降级
+    expect(parseSuggestionsPayload("")).toEqual([])
+    expect(parseSuggestionsPayload("<html>invalid</html>")).toEqual([])
+    expect(parseSuggestionsPayload("{}")).toEqual([])
+  })
+
+  test("自动推导主流搜索引擎建议接口或使用自定义配置", () => {
+    // 1. 自定义显式配置优先
+    expect(resolveSuggestionTemplate({
+      urlTemplate: "https://custom.search/?q=%s",
+      name: "Custom",
+      suggestionUrl: "https://custom.search/api/suggest?term=%s",
+    })).toBe("https://custom.search/api/suggest?term=%s")
+
+    // 2. 谷歌智能推导
+    expect(resolveSuggestionTemplate({
+      urlTemplate: "https://www.google.com/search?q=%s",
+      name: "Google",
+      suggestionUrl: "",
+    })).toContain("suggestqueries.google.com")
+
+    // 3. 必应智能推导为高速 cn.bing.com 接口
+    expect(resolveSuggestionTemplate({
+      urlTemplate: "https://cn.bing.com/search?q=%s",
+      name: "Bing",
+      suggestionUrl: "",
+    })).toContain("cn.bing.com")
+
+    // 4. 旧式海外 api.bing.com 自动升级为 cn.bing.com
+    expect(resolveSuggestionTemplate({
+      urlTemplate: "https://www.bing.com/search?q=%s",
+      name: "Bing",
+      suggestionUrl: "https://api.bing.com/osjson.aspx?query=%s",
+    })).toBe("https://cn.bing.com/osjson.aspx?query=%s")
+
+    // 4. 百度智能推导
+    expect(resolveSuggestionTemplate({
+      urlTemplate: "https://www.baidu.com/s?wd=%s",
+      name: "Baidu",
+      suggestionUrl: "",
+    })).toContain("suggestion.baidu.com")
+
+    // 5. 未匹配且无自定义时安全返回空
+    expect(resolveSuggestionTemplate({
+      urlTemplate: "https://unknown-search-site.org/find?k=%s",
+      name: "Unknown",
+      suggestionUrl: "",
+    })).toBe("")
+  })
+
+  test("/search/suggestions 端点获取关联搜索建议与异常防护", async () => {
+    const { request } = await fixture()
+
+    // 1. 未传关键字或纯空格直接返回 400 校验拦截
+    const emptyRes = await request("/search/suggestions?q=")
+    expect(emptyRes.status).toBe(400)
+
+    // 2. 正常查询端点调用，结构保持契约
+    const sugRes = await request("/search/suggestions?q=bun")
+    expect(sugRes.status).toBe(200)
+    const data = await sugRes.json()
+    expect(Array.isArray(data.suggestions)).toBe(true)
+  })
+
+  test("字符编码自适配解码器准确识别 GBK 与 UTF-8 避免中文乱码", () => {
+    // 1. 正常 UTF-8 编码流解码
+    const utf8Bytes = new TextEncoder().encode('["谷歌", "谷歌翻译"]')
+    expect(decodeBufferWithEncoding(utf8Bytes, "application/json; charset=utf-8")).toBe('["谷歌", "谷歌翻译"]')
+
+    // 2. 百度常用 GBK 编码流（声明 charset=gbk）
+    // 0xb0, 0xd9, 0xb6, 0xc8 对应 GBK 编码的“百度”
+    const gbkBytes = new Uint8Array([0x5b, 0x22, 0xb0, 0xd9, 0xb6, 0xc8, 0x22, 0x5d])
+    expect(decodeBufferWithEncoding(gbkBytes, "text/javascript; charset=gbk")).toBe('["百度"]')
+
+    // 3. 响应头缺失或未声明 charset 时自适应识别并回退 GBK 解码
+    expect(decodeBufferWithEncoding(gbkBytes)).toBe('["百度"]')
+  })
+})
+

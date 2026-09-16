@@ -7,12 +7,13 @@ const props = defineProps<{
   editingBookmark?: Bookmark | null
   groups: BookmarkGroup[]
   currentSpaceId: string
+  targetGroupId?: string | null
 }>()
 
 // 组件事件派发。
 const emit = defineEmits<{
   (e: "close"): void
-  (e: "saved"): void
+  (e: "saved", bookmark?: Bookmark, isFolderAdd?: boolean): void
 }>()
 
 const { createBookmark, updateBookmark, fetchFavicon } = useBookmarks()
@@ -35,13 +36,13 @@ watch(() => props.show, (showing) => {
     formTitle.value = props.editingBookmark.title
     formUrl.value = props.editingBookmark.url
     formIconUrl.value = props.editingBookmark.iconUrl
-    formGroupId.value = props.editingBookmark.groupId
+    formGroupId.value = props.editingBookmark.groupId ?? ""
     formIsPublic.value = props.editingBookmark.isPublic
   } else {
     formTitle.value = ""
     formUrl.value = ""
     formIconUrl.value = ""
-    formGroupId.value = props.groups[0]?.id ?? ""
+    formGroupId.value = props.targetGroupId ?? ""
     formIsPublic.value = true
   }
 })
@@ -74,7 +75,7 @@ async function handleFetchFavicon() {
 
 // 提交保存书签。
 async function handleSubmit() {
-  if (!formTitle.value || !formUrl.value || !formGroupId.value) {
+  if (!formTitle.value || !formUrl.value) {
     errorMessage.value = "请填写完整书签信息"
     return
   }
@@ -89,24 +90,28 @@ async function handleSubmit() {
       try { formIconUrl.value = await fetchFavicon(url) } catch { /* 保留本地默认图标。 */ }
     }
 
+    const effectiveGroupId = formGroupId.value.trim() ? formGroupId.value.trim() : null
+    let saved: Bookmark | undefined
     if (props.editingBookmark) {
-      await updateBookmark(props.editingBookmark.id, props.currentSpaceId, {
-        groupId: formGroupId.value,
+      saved = await updateBookmark(props.editingBookmark.id, props.currentSpaceId, {
+        groupId: effectiveGroupId,
         title: formTitle.value.trim(),
         url,
         iconUrl: formIconUrl.value.trim(),
         isPublic: formIsPublic.value,
       })
     } else {
-      await createBookmark(props.currentSpaceId, {
-        groupId: formGroupId.value,
+      saved = await createBookmark(props.currentSpaceId, {
+        groupId: effectiveGroupId ?? undefined,
+        spaceId: props.currentSpaceId,
         title: formTitle.value.trim(),
         url,
         iconUrl: formIconUrl.value.trim(),
         isPublic: formIsPublic.value,
       })
     }
-    emit("saved")
+    const isFolderAdd = Boolean(props.targetGroupId || effectiveGroupId)
+    emit("saved", saved, isFolderAdd)
     emit("close")
   } catch (err: unknown) {
     errorMessage.value = err instanceof Error ? err.message : "保存失败"
@@ -153,7 +158,8 @@ async function handleSubmit() {
 
         <div class="field">
           <label>所属分组</label>
-          <select v-model="formGroupId" required>
+          <select v-model="formGroupId" :disabled="!!targetGroupId">
+            <option value="">无（桌面独立图标）</option>
             <option v-for="g in groups" :key="g.id" :value="g.id">
               {{ g.name }}
             </option>

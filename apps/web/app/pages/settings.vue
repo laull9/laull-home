@@ -1,27 +1,24 @@
 <script setup lang="ts">
-import { DEFAULT_THEME, type ThemeConfig, type SessionItem } from '@laull-home/shared'
+import { useSettingsDraft } from '../composables/useSettingsDraft'
+import { type SessionItem } from '@laull-home/shared'
 
 // 启用身份鉴权守卫。
 definePageMeta({
   middleware: 'auth',
 })
 
-const { $api } = useNuxtApp()
 const { user, changeUsername, changePassword, fetchSessions, revokeSession, revokeOthers } = useAuth()
 const { setupPrivacyPassword } = useSpaces()
 
-// 用户基本设置。
-const title = ref('')
-const appearance = ref<'system' | 'light' | 'dark'>('system')
-const themeId = ref('default')
-const wallpaperType = ref<'none' | 'color' | 'gradient' | 'url'>('none')
-const wallpaperValue = ref('')
-const customCss = ref('')
-// 主题参数与原有设置一起提交版本校验。
-const themeConfig = ref<ThemeConfig>(JSON.parse(JSON.stringify(DEFAULT_THEME)))
-const revision = ref(0)
-const settingsMsg = ref('')
-const { applyTheme, applyCustomCss, THEME_PRESETS } = useTheme()
+// 分页由地址参数保留，刷新和浏览器前进后退可恢复。
+const route = useRoute()
+// 设置导航按使用目的分组。
+const pages = [{ id: 'appearance', name: '外观' }, { id: 'wallpaper', name: '壁纸' }, { id: 'search', name: '搜索' }, { id: 'account', name: '账号' }, { id: 'privacy', name: '隐私' }, { id: 'devices', name: '设备' }]
+const page = computed(() => pages.find(item => item.id === route.query.page)?.id ?? 'appearance')
+const { draft, ready, state, message, chooseTheme, chooseColor, retry, load } = useSettingsDraft()
+
+// 用户主动重读时确认放弃尚未保存的草稿。
+function reloadSettings() { if (!ready.value || confirm('放弃当前修改并重新读取？')) void load() }
 
 // 用户名修改字段。
 const newUsername = ref('')
@@ -46,56 +43,7 @@ const sessionsMsg = ref('')
 
 // 加载基础设置和设备列表。
 onMounted(async () => {
-  await loadSettings()
   await loadSessions()
-})
-
-// 加载用户基础设置。
-async function loadSettings() {
-  const result = await $api.settings.get()
-  if (result.data) {
-    title.value = result.data.title
-    appearance.value = result.data.appearance
-    themeId.value = result.data.themeId ?? 'default'
-    wallpaperType.value = (result.data.wallpaperType as 'none' | 'color' | 'gradient' | 'url') ?? 'none'
-    wallpaperValue.value = result.data.wallpaperValue ?? ''
-    customCss.value = result.data.customCss ?? ''
-    themeConfig.value = result.data.themeConfig ?? JSON.parse(JSON.stringify(DEFAULT_THEME))
-    revision.value = result.data.revision
-    applyTheme(result.data)
-  }
-}
-
-// 保存用户基础设置。
-async function saveSettings() {
-  settingsMsg.value = ''
-  const result = await $api.settings.put({
-    revision: revision.value,
-    title: title.value,
-    appearance: appearance.value,
-    themeId: themeId.value,
-    wallpaperType: wallpaperType.value,
-    wallpaperValue: wallpaperValue.value,
-    customCss: customCss.value,
-    themeConfig: themeConfig.value,
-  })
-  if (result.data) {
-    revision.value = result.data.revision
-    applyTheme(result.data)
-    applyCustomCss(customCss.value)
-    settingsMsg.value = '设置已保存'
-  } else {
-    settingsMsg.value = result.error?.value.message ?? '保存失败，请重试'
-  }
-}
-
-// 结构化主题编辑实时预览，离开页面恢复已保存设置。
-watch(themeConfig, () => {
-  if (title.value) applyTheme({ revision: revision.value, title: title.value, appearance: appearance.value, themeId: themeId.value, wallpaperType: wallpaperType.value, wallpaperValue: wallpaperValue.value, customCss: customCss.value, themeConfig: themeConfig.value })
-}, { deep: true })
-onUnmounted(async () => {
-  const result = await $api.settings.get()
-  if (result.data) applyTheme(result.data)
 })
 
 // 提交用户名修改。
@@ -200,72 +148,15 @@ async function handleRevokeOthers() {
       <h1>设置</h1>
     </header>
 
-    <main class="content">
-      <section class="card">
-        <h2>外观、主题与壁纸</h2>
-        <form @submit.prevent="saveSettings">
-          <div class="field">
-            <label for="title">主页标题</label>
-            <input id="title" v-model="title" type="text" required>
-          </div>
-          <div class="field">
-            <label for="appearance">外观模式</label>
-            <select id="appearance" v-model="appearance">
-              <option value="system">
-                跟随系统
-              </option>
-              <option value="light">
-                浅色
-              </option>
-              <option value="dark">
-                深色
-              </option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="theme">预设主题</label>
-            <select id="theme" v-model="themeId">
-              <option v-for="preset in THEME_PRESETS" :key="preset.id" :value="preset.id">
-                {{ preset.name }}
-              </option>
-            </select>
-          </div>
-          <div class="field">
-            <label for="wallpaper">壁纸类型</label>
-            <select id="wallpaper" v-model="wallpaperType">
-              <option value="none">无自定义壁纸</option>
-              <option value="color">纯色背景</option>
-              <option value="gradient">渐变背景</option>
-              <option value="url">远程壁纸图片 URL</option>
-            </select>
-          </div>
-          <div v-if="wallpaperType !== 'none'" class="field">
-            <label for="wallpaper-val">
-              {{ wallpaperType === 'color' ? '背景颜色代码（例如 #0f172a）' : wallpaperType === 'gradient' ? 'CSS 渐变表达式' : '图片链接 URL' }}
-            </label>
-            <input id="wallpaper-val" v-model="wallpaperValue" type="text" placeholder="输入参数值">
-          </div>
-          <div class="field">
-            <label for="custom-css">自定义 CSS 覆盖</label>
-            <textarea
-              id="custom-css"
-              v-model="customCss"
-              class="css-textarea"
-              placeholder="自定义 CSS 样式，例如：&#10;.bookmark-card { border-radius: 20px; }"
-              rows="4"
-            />
-          </div>
-          <ThemeDesigner v-model="themeConfig" />
-          <p v-if="settingsMsg" class="info-text">
-            {{ settingsMsg }}
-          </p>
-          <button type="submit" class="btn">
-            保存设置
-          </button>
-        </form>
-      </section>
-
-      <section class="card">
+    <div class="settings-layout">
+      <nav class="settings-nav" aria-label="设置分页">
+        <NuxtLink v-for="item in pages" :key="item.id" :to="{ path: '/settings', query: { page: item.id } }" :aria-current="page === item.id ? 'page' : undefined">{{ item.name }}</NuxtLink>
+      </nav>
+      <main class="content">
+        <div class="page-heading"><h2>{{ pages.find(item => item.id === page)?.name }}</h2><span role="status" :class="{ 'error-text': state === 'error' }">{{ message }}</span></div>
+        <div v-if="state === 'error'" class="recovery"><button v-if="ready" type="button" @click="retry">重试保存</button><button type="button" @click="reloadSettings">重新读取</button></div>
+        <SettingsAppearance v-if="ready && (page === 'appearance' || page === 'wallpaper')" v-model="draft" :page="page" @theme="chooseTheme" @color="chooseColor" />
+      <section v-if="page === 'account'" class="card">
         <h2>修改用户名</h2>
         <form @submit.prevent="handleUsernameChange">
           <div class="field">
@@ -288,7 +179,7 @@ async function handleRevokeOthers() {
         </form>
       </section>
 
-      <section class="card">
+      <section v-if="page === 'account'" class="card">
         <h2>修改登录密码</h2>
         <div v-if="user?.isDefaultPassword" class="warning-box">
           当前账号正在使用初始默认密码（admin），请尽快修改为 5 至 128 位自定义密码。
@@ -318,7 +209,7 @@ async function handleRevokeOthers() {
         </form>
       </section>
 
-      <section class="card">
+      <section v-if="page === 'privacy'" class="card">
         <h2>隐私空间密码</h2>
         <form @submit.prevent="handlePrivacySetup">
           <div class="field">
@@ -337,9 +228,9 @@ async function handleRevokeOthers() {
         </form>
       </section>
 
-      <SearchEngineSettings />
+      <SearchEngineSettings v-if="page === 'search'" />
 
-      <section class="card">
+      <section v-if="page === 'devices'" class="card">
         <div class="card-header">
           <h2>活动设备</h2>
           <button type="button" class="btn-secondary" @click="handleRevokeOthers">
@@ -367,17 +258,29 @@ async function handleRevokeOthers() {
         </ul>
       </section>
     </main>
+    </div>
   </div>
 </template>
 
 <style scoped>
 .settings-page {
-  max-width: 680px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 32px 16px;
   color: var(--lh-text);
 }
-.header { margin-bottom: 24px; }
+.header { margin-bottom: 32px; display: flex; align-items: center; gap: 32px; }
+.header h1 { font-size: 24px; margin: 0; }
+.settings-layout { display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 40px; }
+.settings-nav { display: flex; flex-direction: column; gap: 6px; align-self: start; position: sticky; top: 24px; }
+.settings-nav a { color: var(--lh-text-secondary); padding: 12px 16px; text-decoration: none; border-radius: var(--lh-radius-sm); }
+.settings-nav a[aria-current=page] { background: var(--lh-accent); color: var(--lh-accent-text); }
+.page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.page-heading h2 { margin: 0; font-size: 20px; }
+.page-heading span { font-size: 12px; color: var(--lh-text-secondary); }
+.recovery { display: flex; gap: 8px; }
+.session-info { min-width: 0; overflow-wrap: anywhere; }
+@media (max-width: 680px) { .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; } .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; } .settings-nav a { padding: 9px 12px; } }
 .back-link {
   color: var(--lh-accent);
   text-decoration: none;

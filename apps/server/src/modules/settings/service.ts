@@ -16,10 +16,17 @@ export function createSettingsService(db: AppDatabase) {
         themeId: userSettings.themeId,
         wallpaperType: userSettings.wallpaperType,
         wallpaperValue: userSettings.wallpaperValue,
+        wallpaperAutoRotate: userSettings.wallpaperAutoRotate,
+        wallpaperRotateInterval: userSettings.wallpaperRotateInterval,
         customCss: userSettings.customCss,
         themeConfig: userSettings.themeConfig,
       }).from(userSettings).where(eq(userSettings.userId, userId)).get()
-      return { ...row, themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row?.themeConfig ?? '{}') } } as HomeSettings
+      return {
+        ...row,
+        wallpaperAutoRotate: Boolean(row?.wallpaperAutoRotate),
+        wallpaperRotateInterval: row?.wallpaperRotateInterval ?? 60,
+        themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row?.themeConfig ?? '{}') },
+      } as HomeSettings
     },
     // Drizzle 完成版本比较与写入；冲突返回空值。
     update(userId: number, value: HomeSettings) {
@@ -32,6 +39,8 @@ export function createSettingsService(db: AppDatabase) {
         themeId: value.themeId ?? 'default',
         wallpaperType: value.wallpaperType ?? 'none',
         wallpaperValue: value.wallpaperValue ?? '',
+        ...(value.wallpaperAutoRotate !== undefined ? { wallpaperAutoRotate: value.wallpaperAutoRotate ? 1 : 0 } : {}),
+        ...(value.wallpaperRotateInterval !== undefined ? { wallpaperRotateInterval: value.wallpaperRotateInterval } : {}),
         customCss: value.customCss ?? '',
         ...(value.themeConfig ? { themeConfig: JSON.stringify(value.themeConfig) } : {}),
         revision: sql`${userSettings.revision} + 1`,
@@ -45,11 +54,18 @@ export function createSettingsService(db: AppDatabase) {
         themeId: userSettings.themeId,
         wallpaperType: userSettings.wallpaperType,
         wallpaperValue: userSettings.wallpaperValue,
+        wallpaperAutoRotate: userSettings.wallpaperAutoRotate,
+        wallpaperRotateInterval: userSettings.wallpaperRotateInterval,
         customCss: userSettings.customCss,
         themeConfig: userSettings.themeConfig,
       }).all()
       const row = rows[0]
-      return row ? { ...row, themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row.themeConfig) } } as HomeSettings : null
+      return row ? {
+        ...row,
+        wallpaperAutoRotate: Boolean(row.wallpaperAutoRotate),
+        wallpaperRotateInterval: row.wallpaperRotateInterval ?? 60,
+        themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row.themeConfig) },
+      } as HomeSettings : null
     },
   }
 }

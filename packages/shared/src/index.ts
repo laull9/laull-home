@@ -21,10 +21,14 @@ export const settingsSchema = Type.Object({
   appearance: Type.Union([Type.Literal('system'), Type.Literal('light'), Type.Literal('dark')]),
   // 预设主题标识。
   themeId: Type.Optional(Type.String({ minLength: 1, maxLength: 32 })),
-  // 壁纸类型：无、纯色、渐变或自定义图片地址。
-  wallpaperType: Type.Optional(Type.Union([Type.Literal('none'), Type.Literal('color'), Type.Literal('gradient'), Type.Literal('url')])),
+  // 壁纸类型：无、纯色、渐变、自定义图片地址或图片池。
+  wallpaperType: Type.Optional(Type.Union([Type.Literal('none'), Type.Literal('color'), Type.Literal('gradient'), Type.Literal('url'), Type.Literal('pool')])),
   // 壁纸具体参数值。
   wallpaperValue: Type.Optional(Type.String({ maxLength: 500 })),
+  // 是否启用壁纸定时轮换。
+  wallpaperAutoRotate: Type.Optional(Type.Boolean()),
+  // 壁纸定时轮换间隔时间（分钟）。
+  wallpaperRotateInterval: Type.Optional(Type.Integer({ minimum: 1, maximum: 10080 })),
   // 结构化主题参数支持跨端同步。
   themeConfig: Type.Optional(themeConfigSchema),
   // 自定义 CSS 覆盖样式规则。
@@ -174,8 +178,8 @@ export type ReorderBookmarkGroupsInput = Static<typeof reorderBookmarkGroupsSche
 export const bookmarkSchema = Type.Object({
   // 书签唯一标识。
   id: Type.String(),
-  // 所属分组标识。
-  groupId: Type.String(),
+  // 所属分组标识，未归入文件夹时为 null。
+  groupId: Type.Union([Type.String(), Type.Null()]),
   // 所属空间标识。
   spaceId: Type.String(),
   // 书签标题。
@@ -199,8 +203,10 @@ export type Bookmark = Static<typeof bookmarkSchema>
 
 // 创建书签请求结构。
 export const createBookmarkSchema = Type.Object({
-  // 所属分组标识。
-  groupId: Type.String({ minLength: 1 }),
+  // 所属分组标识，未归入文件夹时不传或为 null。
+  groupId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
+  // 所属空间标识。
+  spaceId: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
   // 书签标题。
   title: Type.String({ minLength: 1, maxLength: 128 }),
   // 目标地址。
@@ -216,8 +222,8 @@ export type CreateBookmarkInput = Static<typeof createBookmarkSchema>
 
 // 更新书签请求结构。
 export const updateBookmarkSchema = Type.Object({
-  // 目标分组标识。
-  groupId: Type.Optional(Type.String({ minLength: 1 })),
+  // 目标分组标识，传 null 可将书签移出分组成为独立图标。
+  groupId: Type.Optional(Type.Union([Type.String({ minLength: 1 }), Type.Null()])),
   // 书签标题。
   title: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
   // 目标地址。
@@ -244,134 +250,48 @@ export const reorderBookmarksSchema = Type.Object({
 // 批量重读书签输入类型。
 export type ReorderBookmarksInput = Static<typeof reorderBookmarksSchema>
 
-// 搜索引擎结构。
-export const searchEngineSchema = Type.Object({
-  // 引擎唯一标识。
+// 导出搜索引擎与联想建议相关定义与工具。
+export * from "./search"
+
+// 图片池条目结构。
+export const wallpaperItemSchema = Type.Object({
+  // 壁纸唯一标识。
   id: Type.String(),
-  // 引擎展示名称。
-  name: Type.String({ minLength: 1, maxLength: 64 }),
-  // 查询地址模板，包含 %s。
-  urlTemplate: Type.String({ minLength: 3, maxLength: 512 }),
-  // 快捷 Bang 指令，例如 gh。
-  bang: Type.String({ maxLength: 16 }),
-  // 是否为默认搜索引擎。
-  isDefault: Type.Boolean(),
-  // 排序权重。
-  sortOrder: Type.Integer(),
+  // 所属用户编号。
+  userId: Type.Integer(),
+  // 壁纸名称。
+  name: Type.String({ minLength: 1, maxLength: 100 }),
+  // 壁纸访问地址。
+  url: Type.String({ minLength: 1, maxLength: 1024 }),
+  // 来源类型：本地上传或外部 URL 导入。
+  sourceType: Type.Union([Type.Literal('upload'), Type.Literal('url')]),
   // 创建时间戳。
   createdAt: Type.Integer(),
   // 更新时间戳。
   updatedAt: Type.Integer(),
 })
 
-// 搜索引擎类型。
-export type SearchEngine = Static<typeof searchEngineSchema>
+// 图片池条目类型。
+export type WallpaperItem = Static<typeof wallpaperItemSchema>
 
-// 创建搜索引擎请求结构。
-export const createSearchEngineSchema = Type.Object({
-  // 引擎展示名称。
-  name: Type.String({ minLength: 1, maxLength: 64 }),
-  // 查询地址模板。
-  urlTemplate: Type.String({ minLength: 3, maxLength: 512 }),
-  // 快捷 Bang 指令。
-  bang: Type.Optional(Type.String({ maxLength: 16 })),
-  // 是否设为默认。
-  isDefault: Type.Optional(Type.Boolean()),
-}, { additionalProperties: false })
-
-// 创建搜索引擎输入类型。
-export type CreateSearchEngineInput = Static<typeof createSearchEngineSchema>
-
-// 更新搜索引擎请求结构。
-export const updateSearchEngineSchema = Type.Object({
-  // 引擎展示名称。
-  name: Type.Optional(Type.String({ minLength: 1, maxLength: 64 })),
-  // 查询地址模板。
-  urlTemplate: Type.Optional(Type.String({ minLength: 3, maxLength: 512 })),
-  // 快捷 Bang 指令。
-  bang: Type.Optional(Type.String({ maxLength: 16 })),
-  // 是否设为默认。
-  isDefault: Type.Optional(Type.Boolean()),
-  // 排序权重。
-  sortOrder: Type.Optional(Type.Integer()),
-}, { additionalProperties: false })
-
-// 更新搜索引擎输入类型。
-export type UpdateSearchEngineInput = Static<typeof updateSearchEngineSchema>
-
-// 图标抓取请求结构。
-export const fetchFaviconSchema = Type.Object({
-  // 需要探测图标的站点地址。
+// 导入外部壁纸请求结构。
+export const createWallpaperSchema = Type.Object({
+  // 壁纸展示名称。
+  name: Type.String({ minLength: 1, maxLength: 100 }),
+  // 图片外部 URL 地址。
   url: Type.String({ minLength: 1, maxLength: 1024 }),
 }, { additionalProperties: false })
 
-// 图标抓取输入类型。
-export type FetchFaviconInput = Static<typeof fetchFaviconSchema>
+// 导入外部壁纸输入类型。
+export type CreateWallpaperInput = Static<typeof createWallpaperSchema>
 
-// 检查地址是否使用安全的 Web 协议。
-export function isValidSafeUrl(target: string): boolean {
-  try {
-    const parsed = new URL(target)
-    return parsed.protocol === 'http:' || parsed.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
+// 更新壁纸条目请求结构。
+export const updateWallpaperSchema = Type.Object({
+  // 壁纸展示名称。
+  name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+  // 图片外部 URL 地址。
+  url: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })),
+}, { additionalProperties: false })
 
-// 识别是否像一个域名或网址。
-export function looksLikeUrl(text: string): boolean {
-  const trimmed = text.trim()
-  if (/^https?:\/\//i.test(trimmed)) return true
-  return /^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}(:\d+)?(\/.*)?$/i.test(trimmed)
-    || /^localhost(:\d+)?(\/.*)?$/i.test(trimmed)
-}
-
-// 搜索查询解析结果结构。
-export interface SearchQueryResult {
-  // 跳转方式：直接打开网址或通过搜索引擎查询。
-  type: 'url' | 'search'
-  // 最终跳转的目标地址。
-  targetUrl: string
-}
-
-// 解析用户输入的搜索词或网址。
-export function parseSearchQuery(input: string, engines: SearchEngine[]): SearchQueryResult {
-  const trimmed = input.trim()
-  if (!trimmed) {
-    const defaultEngine = engines.find(e => e.isDefault) ?? engines[0]
-    return {
-      type: 'search',
-      targetUrl: defaultEngine ? defaultEngine.urlTemplate.replace('%s', '') : 'https://www.google.com',
-    }
-  }
-
-  // 1. 检查是否为 Bang 语法，如 !gh rust 或 !yt bun
-  if (trimmed.startsWith('!')) {
-    const spaceIndex = trimmed.indexOf(' ')
-    const bang = spaceIndex === -1 ? trimmed.slice(1) : trimmed.slice(1, spaceIndex)
-    const keyword = spaceIndex === -1 ? '' : trimmed.slice(spaceIndex + 1).trim()
-    const matchedEngine = engines.find(e => e.bang && e.bang.toLowerCase() === bang.toLowerCase())
-    if (matchedEngine) {
-      return {
-        type: 'search',
-        targetUrl: matchedEngine.urlTemplate.replace('%s', encodeURIComponent(keyword)),
-      }
-    }
-  }
-
-  // 2. 检查是否为网址
-  if (looksLikeUrl(trimmed)) {
-    const finalUrl = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
-    if (isValidSafeUrl(finalUrl)) {
-      return { type: 'url', targetUrl: finalUrl }
-    }
-  }
-
-  // 3. 默认搜索引擎搜索
-  const defaultEngine = engines.find(e => e.isDefault) ?? engines[0]
-  const template = defaultEngine?.urlTemplate ?? 'https://www.google.com/search?q=%s'
-  return {
-    type: 'search',
-    targetUrl: template.replace('%s', encodeURIComponent(trimmed)),
-  }
-}
+// 更新壁纸条目输入类型。
+export type UpdateWallpaperInput = Static<typeof updateWallpaperSchema>

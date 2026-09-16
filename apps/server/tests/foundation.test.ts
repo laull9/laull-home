@@ -135,7 +135,7 @@ describe('认证与设置', () => {
   test('验证字段并以版本号阻止设置覆盖', async () => {
     const { request, login } = await fixture()
     const { cookie } = await login()
-    const setting = { revision: 0, title: '工作台', appearance: 'dark', themeId: 'default', wallpaperType: 'none', wallpaperValue: '', customCss: 'body { font-size: 14px; }' }
+    const setting = { revision: 0, title: '工作台', appearance: 'dark', themeId: 'default', wallpaperType: 'none', wallpaperValue: '', wallpaperAutoRotate: false, wallpaperRotateInterval: 60, customCss: 'body { font-size: 14px; }' }
     expect((await request('/settings', 'PUT', { ...setting, appearance: 'unknown' }, cookie)).status).toBe(400)
     expect((await request('/settings', 'PUT', { ...setting, customCss: 'a'.repeat(32769) }, cookie)).status).toBe(400)
     const saved = await request('/settings', 'PUT', setting, cookie)

@@ -34,7 +34,16 @@ function save() {
 // 启用局部样式时快照当前全局参数。
 function localStyle() {
   if (!draft.value) return
-  draft.value.style = { opacity: 95, blur: 16, radius: 16, padding: 12, border: 1, color: '', background: '' }
+  draft.value.style = { opacity: 95, blur: 16, radius: 16, padding: 12, border: 1, color: '', background: '', frameless: false }
+}
+// 切换是否脱离底座卡片。
+function toggleFrameless(enabled: boolean) {
+  if (!draft.value) return
+  if (!draft.value.style) {
+    draft.value.style = { opacity: 95, blur: 16, radius: 16, padding: 12, border: 1, color: '', background: '', frameless: enabled }
+  } else {
+    draft.value.style.frameless = enabled
+  }
 }
 // 导出 UTF-8 配置代码串，保留版本用于后续迁移。
 function exportCode() {
@@ -48,9 +57,45 @@ function exportCode() {
   <BaseModal :show="!!node" title="组件配置" max-width="600px" @close="emit('close')">
     <form v-if="draft && placement" class="widget-editor" @submit.prevent="save">
       <label>名称<input v-model="draft.title" maxlength="80" required></label>
+
+      <!-- 时钟显示样式选择 -->
+      <label v-if="draft.type === 'clock'">
+        显示样式
+        <select v-model="draft.variant">
+          <option value="">经典数码</option>
+          <option value="minimal">极简大字</option>
+          <option value="analog">模拟精工表盘</option>
+          <option value="flip">复古机械翻牌</option>
+          <option value="progress">今日流逝环</option>
+        </select>
+      </label>
+
+      <!-- 图标书签显示样式选择 -->
+      <label v-if="draft.type === 'bookmark'">
+        显示样式
+        <select v-model="draft.variant">
+          <option value="">标准图标 (1×1)</option>
+          <option value="large">质感大图标</option>
+          <option value="pill">胶囊信息卡 (横向)</option>
+          <option value="emblem">字母徽章</option>
+        </select>
+      </label>
+
+      <!-- 书签文件夹显示样式选择 -->
+      <label v-if="draft.type === 'folder'">
+        收纳展示方式
+        <select v-model="draft.variant">
+          <option value="">风琴收纳抽屉 (原生展开)</option>
+          <option value="launchpad">启动台九宫格</option>
+          <option value="shelf">紧凑横滑书架</option>
+          <option value="grid">经典平铺网格</option>
+        </select>
+      </label>
+
       <label v-if="draft.type === 'bookmark'">书签<select v-model="draft.referenceId"><option value="">请选择</option><option v-for="item in bookmarks" :key="item.id" :value="item.id">{{ item.title }}</option></select></label>
       <label v-if="draft.type === 'folder'">分组<select v-model="draft.referenceId"><option value="">请选择</option><option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
       <label v-if="draft.type === 'note'">内容<textarea v-model="draft.content" rows="5" maxlength="8000" /></label>
+      <label v-if="draft.type === 'countdown'">目标日期<input v-model="draft.content" type="date" required></label>
       <template v-if="draft.type === 'clock' || draft.type === 'calendar'">
         <label>时区<input v-model="draft.timezone" required list="timezones"></label>
         <datalist id="timezones"><option>Asia/Shanghai</option><option>Asia/Tokyo</option><option>Europe/London</option><option>America/New_York</option><option>UTC</option></datalist>
@@ -62,6 +107,16 @@ function exportCode() {
         <label>宽度<input v-model.number="placement.w" type="number" min="1" :max="BREAKPOINTS[breakpoint]"></label>
         <label>高度<input v-model.number="placement.h" type="number" min="1" :max="draft.type === 'search' ? 1 : 4"></label>
       </div><label class="check"><input v-model="placement.pinned" type="checkbox">固定位置</label></fieldset>
+
+      <!-- 脱离卡片底座选项 -->
+      <label class="check">
+        <input
+          type="checkbox"
+          :checked="!!draft.style?.frameless"
+          @change="toggleFrameless(($event.target as HTMLInputElement).checked)"
+        >
+        脱离卡片底座（透明悬浮，无背景与边框）
+      </label>
       <fieldset><legend>局部外观</legend>
         <button v-if="!draft.style" type="button" @click="localStyle">单独设置外观</button>
         <template v-else><div class="fields">

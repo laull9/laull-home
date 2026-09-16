@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { SpaceItem } from "@laull-home/shared"
+import { useWallpapers } from "../composables/useWallpapers"
 
 // 组件属性声明。
 defineProps<{
@@ -18,8 +19,41 @@ const emit = defineEmits<{
   (e: "toggleEditMode"): void
   (e: "selectSpace", spaceId: string): void
   (e: "logout"): void
+  (e: "configureSpace", spaceId: string): void
 }>()
 
+const { rotateNext } = useWallpapers()
+// 轮换动画与反馈提示。
+const isRotating = ref(false)
+const rotateTip = ref('')
+let tipTimer: ReturnType<typeof setTimeout> | null = null
+
+// 点击手动轮换壁纸。
+async function handleRotateWallpaper() {
+  if (isRotating.value) return
+  isRotating.value = true
+  try {
+    const res = await rotateNext()
+    if (!res.success && res.reason) {
+      rotateTip.value = res.reason
+      if (tipTimer) clearTimeout(tipTimer)
+      tipTimer = setTimeout(() => { rotateTip.value = '' }, 2500)
+    }
+  } finally {
+    setTimeout(() => { isRotating.value = false }, 400)
+  }
+}
+
+// 右键菜单保留所指空间，避免误用当前空间。
+const contextPosition = ref<{ x: number; y: number } | null>(null)
+const contextSpace = ref('')
+// 打开空间专属菜单。
+function spaceContext(event: MouseEvent, id: string) {
+  event.preventDefault()
+  event.stopPropagation()
+  contextSpace.value = id
+  contextPosition.value = { x: event.clientX, y: event.clientY }
+}
 // 浮动菜单展开状态。
 const isOpen = ref(false)
 
@@ -67,6 +101,7 @@ onUnmounted(() => {
 
 <template>
   <div ref="menuContainerRef" class="floating-nav">
+    <ContextMenu :position="contextPosition" :items="[{ id: 'configure', label: '编辑此空间布局' }]" @close="contextPosition = null" @action="emit('configureSpace', contextSpace); isOpen = false" />
     <!-- 展开的操作菜单气泡 -->
     <transition name="pop">
       <div v-if="isOpen" class="nav-popover">
@@ -81,6 +116,7 @@ onUnmounted(() => {
               class="space-btn"
               :class="{ active: activeSpaceId === space.id }"
               @click="handleSpaceClick(space.id)"
+              @contextmenu="spaceContext($event, space.id)"
             >
               <span>{{ space.name }}</span>
               <span v-if="space.type === 'privacy'" class="badge">
@@ -138,20 +174,45 @@ onUnmounted(() => {
       </div>
     </transition>
 
-    <!-- 右下角悬浮触发按钮 -->
-    <button
-      type="button"
-      class="fab-button"
-      :class="{ 'fab-active': isOpen }"
-      title="操作菜单"
-      @click="toggleMenu"
-    >
-      <svg class="fab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <circle cx="12" cy="12" r="1" />
-        <circle cx="12" cy="5" r="1" />
-        <circle cx="12" cy="19" r="1" />
-      </svg>
-    </button>
+    <!-- 轮换操作反馈提示 -->
+    <transition name="pop">
+      <div v-if="rotateTip" class="rotate-tip" role="status">
+        {{ rotateTip }}
+      </div>
+    </transition>
+
+    <div class="fab-stack">
+      <!-- 手动轮换背景按钮，位于...按钮上方 -->
+      <button
+        type="button"
+        class="fab-button"
+        title="轮换背景图片"
+        aria-label="轮换背景图片"
+        @click="handleRotateWallpaper"
+      >
+        <svg class="fab-icon" :class="{ 'is-rotating': isRotating }" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+          <path d="M3 3v5h5" />
+          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16" />
+          <path d="M21 21v-5h-5" />
+        </svg>
+      </button>
+
+      <!-- 右下角悬浮触发按钮 -->
+      <button
+        type="button"
+        class="fab-button"
+        :class="{ 'fab-active': isOpen }"
+        title="操作菜单"
+        @click="toggleMenu"
+      >
+        <svg class="fab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="1" />
+          <circle cx="12" cy="5" r="1" />
+          <circle cx="12" cy="19" r="1" />
+        </svg>
+      </button>
+    </div>
   </div>
 </template>
 
@@ -163,15 +224,44 @@ onUnmounted(() => {
   z-index: 100;
 }
 
+.fab-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+.rotate-tip {
+  position: absolute;
+  bottom: 60px;
+  right: 56px;
+  background: var(--lh-surface);
+  border: 1px solid var(--lh-border);
+  color: var(--lh-text);
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: var(--lh-radius-sm);
+  box-shadow: var(--lh-shadow-dropdown);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 110;
+}
+
+.is-rotating {
+  transform: rotate(180deg);
+  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
 .fab-button {
   width: 44px;
   height: 44px;
   border-radius: var(--lh-radius-full);
   border: 1px solid var(--lh-border);
-  background: var(--lh-surface);
+  background: color-mix(in srgb, var(--lh-surface) 88%, transparent);
   color: var(--lh-text);
-  box-shadow: var(--lh-shadow-card);
-  backdrop-filter: blur(var(--lh-blur));
+  box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-card);
+  backdrop-filter: blur(var(--lh-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -180,9 +270,10 @@ onUnmounted(() => {
 }
 
 .fab-button:hover {
-  background: var(--lh-surface-hover);
+  background: color-mix(in srgb, var(--lh-surface-hover) 92%, transparent);
   transform: scale(1.05);
   border-color: var(--lh-border-hover);
+  box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-hover);
 }
 
 .fab-active {
@@ -198,14 +289,15 @@ onUnmounted(() => {
 
 .nav-popover {
   position: absolute;
-  bottom: 56px;
+  bottom: 110px;
   right: 0;
   width: 200px;
-  background: var(--lh-surface);
+  background: color-mix(in srgb, var(--lh-surface) 90%, transparent);
   border: 1px solid var(--lh-border);
   border-radius: var(--lh-radius-lg);
-  box-shadow: var(--lh-shadow-dropdown);
-  backdrop-filter: blur(var(--lh-blur));
+  box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-dropdown);
+  backdrop-filter: blur(var(--lh-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%);
   padding: 8px;
   display: flex;
   flex-direction: column;

@@ -5,18 +5,21 @@ import {
   createBookmarkGroupSchema,
   createBookmarkSchema,
   createSearchEngineSchema,
+  createWallpaperSchema,
   fetchFaviconSchema,
   loginSchema,
   privacySetupSchema,
   privacyUnlockSchema,
   reorderBookmarkGroupsSchema,
   reorderBookmarksSchema,
+  searchSuggestionsQuerySchema,
   settingsSchema,
   desktopSchema,
   mergeWidgetsSchema,
   updateBookmarkGroupSchema,
   updateBookmarkSchema,
   updateSearchEngineSchema,
+  updateWallpaperSchema,
 } from '@laull-home/shared'
 import { createDesktopService } from './modules/desktop/service'
 import type { ServerConfig } from './config'
@@ -28,6 +31,7 @@ import { createFaviconService, FaviconError } from './modules/favicon/service'
 import { createSearchService, SearchEngineError } from './modules/search/service'
 import { createSettingsService } from './modules/settings/service'
 import { createSpacesService } from './modules/spaces/service'
+import { createWallpaperService, WallpaperError } from './modules/wallpapers/service'
 
 // 检查请求来源是否属于受信任的站点或本地开发环境。
 export function isTrustedOrigin(originHeader: string | null | undefined, refererHeader: string | null | undefined, configOrigin: string): boolean {
@@ -69,6 +73,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
   const bookmarksService = createBookmarkService(db)
   const searchService = createSearchService(db)
   const faviconService = createFaviconService(config.dataDir)
+  const wallpaperService = createWallpaperService(db, config.dataDir)
   const cookieOptions = {
     // 限制 Cookie 只能由 HTTP 读取。
     httpOnly: true,
@@ -79,7 +84,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
     // 同源页面与 API 共用认证。
     path: '/',
   }
-  return new Elysia({ prefix: '/api/v1', serve: { maxRequestBodySize: 600 * 1024 } })
+  return new Elysia({ prefix: '/api/v1', serve: { maxRequestBodySize: 15 * 1024 * 1024 } })
     .onRequest(({ request, set, status }) => {
       set.headers['cache-control'] = 'no-store'
       set.headers['x-content-type-options'] = 'nosniff'
@@ -99,7 +104,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
         if (error.status === 409) return status(409, body)
         return status(429, body)
       }
-      if (error instanceof BookmarkError || error instanceof SearchEngineError || error instanceof FaviconError) {
+      if (error instanceof BookmarkError || error instanceof SearchEngineError || error instanceof FaviconError || error instanceof WallpaperError) {
         return status(error.status, { code: 'BUSINESS_ERROR', message: error.message })
       }
       if (code === 'VALIDATION') {
@@ -126,12 +131,24 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
     .get('/search/engines', () => {
       return { engines: searchService.list() }
     })
+    .get('/search/suggestions', async ({ query }) => {
+      const suggestions = await searchService.getSuggestions(query.q, query.engineId)
+      return { suggestions }
+    }, { query: searchSuggestionsQuerySchema })
     .get('/icons/:filename', ({ params, set, status }) => {
       const icon = faviconService.getIcon(params.filename)
       if (!icon) return status(404, { code: 'NOT_FOUND', message: '图标不存在' })
       set.headers['content-type'] = icon.contentType
       set.headers['cache-control'] = 'public, max-age=604800, immutable'
+      set.headers['access-control-allow-origin'] = '*'
       return icon.buffer
+    }, { params: t.Object({ filename: t.String() }) })
+    .get('/wallpapers/image/:filename', ({ params, set, status }) => {
+      const image = wallpaperService.getImage(params.filename)
+      if (!image) return status(404, { code: 'NOT_FOUND', message: '壁纸不存在' })
+      set.headers['content-type'] = image.contentType
+      set.headers['cache-control'] = 'public, max-age=604800, immutable'
+      return image.buffer
     }, { params: t.Object({ filename: t.String() }) })
     .get('/bookmarks/groups', ({ query, cookie, status }) => {
       const spaceId = query.spaceId ?? 'default'
@@ -279,9 +296,31 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       return { success: true }
     }, { params: t.Object({ id: t.String() }) })
     .post('/favicon/fetch', async ({ body }) => {
-      const iconUrl = await faviconService.fetchAndCache(body.url)
+      const iconUrl = await faviconService.fetchAndCache(body.url, body.forceRefresh ?? false)
       return { iconUrl }
     }, { body: fetchFaviconSchema })
+    .get('/wallpapers', ({ user }) => {
+      return { wallpapers: wallpaperService.list(user.id) }
+    })
+    .post('/wallpapers', ({ user, body }) => {
+      return { wallpaper: wallpaperService.create(user.id, body) }
+    }, { body: createWallpaperSchema })
+    .post('/wallpapers/upload', async ({ user, body }) => {
+      const wallpaper = await wallpaperService.saveUpload(user.id, body.file, body.name)
+      return { wallpaper }
+    }, {
+      body: t.Object({
+        file: t.File(),
+        name: t.Optional(t.String()),
+      }),
+    })
+    .put('/wallpapers/:id', ({ user, params, body }) => {
+      return { wallpaper: wallpaperService.update(user.id, params.id, body) }
+    }, { params: t.Object({ id: t.String() }), body: updateWallpaperSchema })
+    .delete('/wallpapers/:id', ({ user, params }) => {
+      wallpaperService.delete(user.id, params.id)
+      return { success: true }
+    }, { params: t.Object({ id: t.String() }) })
 }
 
 // 前端只导入此类型，禁止引入后端运行时代码。

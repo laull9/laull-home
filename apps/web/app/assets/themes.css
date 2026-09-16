@@ -1,0 +1,228 @@
+/* 官方主题与组件深度融合样式表 */
+
+/* 无底座组件与搜索组件强制重置底座样式，杜绝边框、背景与阴影穿透 */
+:root .widget.frameless-widget,
+:root .widget.search-widget,
+:root[data-theme] .widget.frameless-widget,
+:root[data-theme] .widget.search-widget {
+  border: 0 !important;
+  border-width: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+/* 像素主题：硬直角、等宽代码字体、硬边偏移阴影、禁用模糊 */
+:root[data-theme="pixel"] {
+  font-family: var(--lh-font-family);
+}
+:root[data-theme="pixel"] .widget:not(.frameless-widget):not(.search-widget) {
+  border-width: 2px !important;
+  border-radius: 2px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 3px 3px 0 var(--lh-border) !important;
+}
+:root[data-theme="pixel"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 4px 4px 0 var(--lh-accent) !important;
+}
+:root[data-theme="pixel"] .search-form,
+:root[data-theme="pixel"] .fab-button,
+:root[data-theme="pixel"] .nav-popover,
+:root[data-theme="pixel"] .modal-container {
+  border-width: 2px !important;
+  border-radius: 4px !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 3px 3px 0 var(--lh-border) !important;
+}
+:root[data-theme="pixel"] button,
+:root[data-theme="pixel"] input,
+:root[data-theme="pixel"] select,
+:root[data-theme="pixel"] textarea {
+  border-width: 2px !important;
+  border-radius: 2px !important;
+}
+
+/* 新丑野蛮主题：粗黑实体边框、零圆角、实体投影与高饱和冲击力 */
+:root[data-theme="brutalist"] .widget:not(.frameless-widget):not(.search-widget) {
+  border: 2px solid var(--lh-border) !important;
+  border-radius: 0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 4px 4px 0 var(--lh-border) !important;
+}
+:root[data-theme="brutalist"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 6px 6px 0 var(--lh-accent) !important;
+}
+:root[data-theme="brutalist"] .search-form,
+:root[data-theme="brutalist"] .fab-button,
+:root[data-theme="brutalist"] .nav-popover,
+:root[data-theme="brutalist"] .modal-container {
+  border: 2px solid var(--lh-border) !important;
+  border-radius: 0 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: 4px 4px 0 var(--lh-border) !important;
+}
+:root[data-theme="brutalist"] button,
+:root[data-theme="brutalist"] input,
+:root[data-theme="brutalist"] select,
+:root[data-theme="brutalist"] textarea {
+  border: 2px solid var(--lh-border) !important;
+  border-radius: 0 !important;
+}
+:root[data-theme="brutalist"] .todo-checkbox {
+  border: 2px solid var(--lh-border) !important;
+  border-radius: 0 !important;
+}
+
+/* 赛博朋克主题：霓虹高光描边与未来感光晕 */
+:root[data-theme="cyberpunk"] .widget:not(.frameless-widget):not(.search-widget) {
+  border: 1px solid var(--lh-accent) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--lh-accent) 22%, transparent), var(--lh-shadow-card) !important;
+}
+:root[data-theme="cyberpunk"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  transform: translateY(-2px);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--lh-accent) 45%, transparent), var(--lh-shadow-hover) !important;
+}
+:root[data-theme="cyberpunk"] .search-form,
+:root[data-theme="cyberpunk"] .fab-button,
+:root[data-theme="cyberpunk"] .modal-container {
+  border: 1px solid var(--lh-accent) !important;
+  border-radius: 6px !important;
+  box-shadow: 0 0 12px color-mix(in srgb, var(--lh-accent) 25%, transparent) !important;
+}
+
+/* 黑客帝国主题：终端纯黑底色与磷绿代码流微光 */
+:root[data-theme="matrix"] {
+  font-family: var(--lh-font-family);
+}
+:root[data-theme="matrix"] .widget:not(.frameless-widget):not(.search-widget) {
+  border: 1px solid var(--lh-border) !important;
+  border-radius: 2px !important;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--lh-accent) 20%, transparent) !important;
+}
+:root[data-theme="matrix"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent) !important;
+  box-shadow: 0 0 16px color-mix(in srgb, var(--lh-accent) 40%, transparent) !important;
+}
+:root[data-theme="matrix"] .search-form,
+:root[data-theme="matrix"] .fab-button,
+:root[data-theme="matrix"] .modal-container {
+  border: 1px solid var(--lh-border) !important;
+  border-radius: 4px !important;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--lh-accent) 20%, transparent) !important;
+}
+
+/* 通透玻璃主题：超高折射毛玻璃与水晶边缘反光 */
+:root[data-theme="glass"] .widget:not(.frameless-widget):not(.search-widget),
+:root[data-theme="glass"] .search-form,
+:root[data-theme="glass"] .fab-button,
+:root[data-theme="glass"] .nav-popover,
+:root[data-theme="glass"] .modal-container {
+  backdrop-filter: blur(24px) saturate(180%) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(180%) !important;
+  border: 1px solid var(--lh-glass-border) !important;
+}
+:root[data-theme="glass"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  transform: translateY(-3px);
+  box-shadow: inset 0 1px 2px rgba(255, 255, 255, 0.4), var(--lh-shadow-hover) !important;
+}
+
+/* 粘土新拟主题：丰盈内外双重立体阴影 */
+:root[data-theme="claymorphism"] .widget:not(.frameless-widget):not(.search-widget),
+:root[data-theme="claymorphism"] .search-form,
+:root[data-theme="claymorphism"] .fab-button,
+:root[data-theme="claymorphism"] .modal-container {
+  border: 1px solid var(--lh-border) !important;
+  box-shadow: var(--lh-shadow-card) !important;
+}
+:root[data-theme="claymorphism"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--lh-shadow-hover) !important;
+}
+
+/* 羊皮古卷主题：典雅衬线字体与古籍质感 */
+:root[data-theme="parchment"] {
+  font-family: var(--lh-font-family);
+}
+:root[data-theme="parchment"] .search-form,
+:root[data-theme="parchment"] .modal-container {
+  border-radius: 6px !important;
+}
+:root[data-theme="parchment"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  transform: translateY(-2px);
+  box-shadow: var(--lh-shadow-hover) !important;
+}
+
+/* 德古拉主题：紫红暗夜霓虹微光 */
+:root[data-theme="dracula"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 0 0 1px var(--lh-accent), var(--lh-shadow-hover) !important;
+}
+
+/* 北欧极光主题：冰蓝霜雪与沉静冷调 */
+:root[data-theme="nord"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 4px 20px -2px rgba(136, 192, 208, 0.25), var(--lh-shadow-hover) !important;
+}
+
+/* 东京之夜主题：夜幕冰蓝繁华光彩 */
+:root[data-theme="tokyo-night"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--lh-accent) 30%, transparent), var(--lh-shadow-hover) !important;
+}
+
+/* 极光之境主题：夜幕青绿翡翠流光 */
+:root[data-theme="aurora"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--lh-accent) 35%, transparent), var(--lh-shadow-hover) !important;
+}
+
+/* 春日落樱主题：柔和粉润边框微光 */
+:root[data-theme="cherry-blossom"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 6px 20px -4px color-mix(in srgb, var(--lh-accent) 25%, transparent), var(--lh-shadow-hover) !important;
+}
+
+/* 落日晚霞主题：暮色暖橙余晖晕染 */
+:root[data-theme="sunset"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 6px 20px -4px color-mix(in srgb, var(--lh-accent) 30%, transparent), var(--lh-shadow-hover) !important;
+}
+
+/* 猫咖柔彩主题：温润大圆角马卡龙轮廓 */
+:root[data-theme="catppuccin"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 0 0 1px var(--lh-accent), var(--lh-shadow-hover) !important;
+}
+
+/* 玫瑰松木主题：温雅玫瑰与冷杉微调 */
+:root[data-theme="rose-pine"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 4px 16px -2px color-mix(in srgb, var(--lh-accent) 25%, transparent), var(--lh-shadow-hover) !important;
+}
+
+/* 幽邃午夜主题：深海星芒高反差 */
+:root[data-theme="midnight"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: 0 8px 30px -4px rgba(0, 0, 0, 0.7), var(--lh-shadow-hover) !important;
+}
+
+/* 极简冷灰主题：利落工业灰阶微浮 */
+:root[data-theme="zinc"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: var(--lh-shadow-hover) !important;
+}
+
+/* 日晒光谱与复古暖棕微交互 */
+:root[data-theme="solarized"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover,
+:root[data-theme="gruvbox"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover {
+  border-color: var(--lh-accent);
+  box-shadow: var(--lh-shadow-hover) !important;
+}

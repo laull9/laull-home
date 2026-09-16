@@ -56,11 +56,29 @@ export function useSearch() {
     await fetchEngines()
   }
 
+  // 获取关联关键词建议列表。
+  async function fetchSuggestions(query: string, engineId?: string): Promise<string[]> {
+    const trimmed = query.trim()
+    if (!trimmed) return []
+    try {
+      const res = await $api.search.suggestions.get({
+        query: {
+          q: trimmed,
+          engineId: engineId || undefined,
+        },
+      })
+      return res.data?.suggestions ?? []
+    } catch {
+      return []
+    }
+  }
+
   return {
     engines,
     defaultEngine,
     loading,
     fetchEngines,
+    fetchSuggestions,
     executeSearch,
     createEngine,
     updateEngine,

@@ -110,11 +110,12 @@ function handleBackdropClick(event: MouseEvent) {
 
 .modal-container {
   width: 100%;
-  background: var(--lh-surface);
+  background: color-mix(in srgb, var(--lh-surface) 92%, transparent);
   border: 1px solid var(--lh-border);
   border-radius: var(--lh-radius-lg);
-  box-shadow: var(--lh-shadow-dropdown);
-  backdrop-filter: blur(var(--lh-blur));
+  box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-dropdown);
+  backdrop-filter: blur(var(--lh-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%);
   color: var(--lh-text);
   overflow: hidden;
   display: flex;

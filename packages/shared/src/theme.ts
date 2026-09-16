@@ -27,8 +27,8 @@ export function contrast(a: string, b: string): number {
   const values = [luminance(a), luminance(b)].sort((x, y) => y - x)
   return (values[0]! + 0.05) / (values[1]! + 0.05)
 }
-// 混合生成双模背景。
-function mix(a: string, b: string, amount: number): string {
+// 混合生成双模背景与色调变化。
+export function mix(a: string, b: string, amount: number): string {
   return '#' + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - amount) + parseInt(b.slice(i, i + 2), 16) * amount).toString(16).padStart(2, '0')).join('')
 }
 // 按种子色生成双模变量并确保按钮文本符合 AA。
