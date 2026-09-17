@@ -4,80 +4,74 @@ import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { arrangeNodes, findBottomRightPlacement, newWidget, BREAKPOINTS, isWidget, scopedCss, type WidgetNode, type Bookmark, type BookmarkGroup, type Breakpoint, type Placement } from '@laull-home/shared'
 import { useWidgetDrag } from '../../composables/useWidgetDrag'
 import { useDesktop } from '../../composables/useDesktop'
+import { useFolderItemDrag } from '../../composables/useFolderItemDrag'
+import { useCanvasContextMenu } from '../../composables/useCanvasContextMenu'
 import AlertModal from '../AlertModal.vue'
 import WidgetContent from './WidgetContent.vue'
 import WidgetEditor from './WidgetEditor.vue'
 import ComponentTree from './ComponentTree.vue'
 import { activeDragTreeItem } from './treeCatalog'
 
+// 外部双向同步断点与叠放模式。
+const selectedBreakpoint = defineModel<'auto' | Breakpoint>('selectedBreakpoint', { default: 'auto' })
+const stackMode = defineModel<boolean>('stackMode', { default: false })
 // 画布只接收已授权的空间内容。
 const props = defineProps<{ spaceId: string; editing: boolean; bookmarks: Bookmark[]; groups: BookmarkGroup[] }>()
 // 复用已有书签编辑与新增操作。
-const emit = defineEmits<{ editBookmark: [bookmark: Bookmark]; addBookmark: [groupId?: string]; dirty: [value: boolean]; refresh: []; startEdit: []; quickAdd: [] }>()
+const emit = defineEmits<{
+  editBookmark: [bookmark: Bookmark]; addBookmark: [groupId?: string]; dirty: [value: boolean]
+  saving: [value: boolean]; treeOpen: [value: boolean]; refresh: []; startEdit: []; quickAdd: []
+}>()
 // 空间画布和编辑状态。
 const { data, error, loading, saving, dirty, load, save, merge, update, add, remove, template } = useDesktop()
 const { updateBookmark, createGroup } = useBookmarks()
 const breakpoint = ref<Breakpoint>('desktop')
-const selectedBreakpoint = ref<'auto' | Breakpoint>('auto')
+const { handleDropToCanvas } = useFolderItemDrag({
+  spaceId: computed(() => props.spaceId),
+  breakpoint,
+  data,
+  bookmarks: computed(() => props.bookmarks),
+  updateBookmark,
+  save,
+  refresh: () => emit('refresh'),
+})
 const canvas = ref<HTMLElement | null>(null)
 // 实时组件树面板显隐状态。
 const showComponentTree = ref(false)
-// 进入编辑模式记录快照，退出编辑模式自动收起组件树。
+// 进入编辑模式记录快照，退出编辑模式清空快照并收起组件树。
 const initialCanvasSnapshot = ref<string>('')
 watch(() => props.editing, isEditing => {
-  if (isEditing && data.value) initialCanvasSnapshot.value = JSON.stringify(data.value.nodes)
-  if (!isEditing) showComponentTree.value = false
+  if (isEditing && data.value && !initialCanvasSnapshot.value) {
+    initialCanvasSnapshot.value = JSON.stringify(data.value.nodes)
+  }
+  if (!isEditing) { initialCanvasSnapshot.value = ''; showComponentTree.value = false }
 })
+// 异步读取完毕若已在编辑中，记录初始快照。
+watch(data, current => {
+  if (props.editing && current && !initialCanvasSnapshot.value) initialCanvasSnapshot.value = JSON.stringify(current.nodes)
+})
+// 向外同步后台静默保存状态与组件树展开收起状态。
+watch(saving, isSaving => emit('saving', isSaving), { immediate: true })
+watch(showComponentTree, isOpen => emit('treeOpen', isOpen), { immediate: true })
 const selected = ref<WidgetNode | null>(null)
-const importCode = ref(''), filter = ref(''), alt = ref(false), dragged = ref(''), stackMode = ref(false)
+const importCode = ref(''), filter = ref(''), alt = ref(false), dragged = ref('')
 const activeStacks = ref<Record<string, number>>({})
 let observer: ResizeObserver | undefined, touchStart = 0
 // 快捷菜单只作用于已载入且已授权的画布。
 const { user } = useAuth()
-const contextPosition = ref<{ x: number; y: number } | null>(null)
-const contextNode = ref<WidgetNode | null>(null)
-// 根据目标显示组件操作、删除或当前空间布局操作。
-const contextItems = computed(() => [
-  ...(contextNode.value ? [
-    { id: 'configure', label: '配置组件外观' },
-    ...(contextNode.value.type === 'bookmark' ? [{ id: 'bookmark', label: '编辑此书签' }] : []),
-    ...(contextNode.value.type === 'folder' ? [{ id: 'add-to-folder', label: '在此文件夹添加图标' }] : []),
-    { id: 'delete', label: '删除此组件' },
-  ] : []),
-  { id: 'layout', label: '编辑当前空间布局' }, { id: 'add', label: '添加图标导航' },
-  { id: 'library', label: showComponentTree.value ? '收起组件树' : '添加组件' }, { id: 'settings', label: '打开全局外观设置' },
-])
-// 输入框保留原生菜单，其他位置记录右键目标。
-function openContext(event: MouseEvent, node: WidgetNode | null = null) {
-  if (!user.value || !data.value || loading.value || saving.value || (event.target as HTMLElement).closest('input, textarea, select, [role=dialog], .modal-backdrop')) return
-  event.preventDefault()
-  event.stopPropagation()
-  contextNode.value = node
-  contextPosition.value = { x: event.clientX, y: event.clientY }
-}
-// 操作使用打开菜单时的目标，避免误改其他组件。
-function contextAction(id: string) {
-  if (!user.value || !data.value || saving.value) return
-  if (id === 'settings') { void navigateTo('/settings?page=appearance'); return }
-  if (id === 'add') { emit('quickAdd'); return }
-  if (id === 'add-to-folder' && contextNode.value) {
-    emit('addBookmark', contextNode.value.referenceId)
-    return
-  }
-  if (id === 'delete' && contextNode.value) {
-    remove(contextNode.value.id)
-    if (!props.editing) void save()
-    return
-  }
-  if (id === 'configure') { selected.value = contextNode.value; return }
-  if (id === 'bookmark') {
-    const bookmark = props.bookmarks.find(item => item.id === contextNode.value?.referenceId)
-    if (bookmark) emit('editBookmark', bookmark)
-    return
-  }
-  if (id === 'library') { showComponentTree.value = !showComponentTree.value; return }
-  emit('startEdit')
-}
+const { contextPosition, contextItems, openContext, contextAction } = useCanvasContextMenu({
+  user, data, loading, saving,
+  editing: () => props.editing,
+  bookmarks: () => props.bookmarks,
+  showComponentTree,
+  save,
+  remove,
+  onQuickAdd: () => emit('quickAdd'),
+  onAddBookmark: (groupId) => emit('addBookmark', groupId),
+  onEditBookmark: (bm) => emit('editBookmark', bm),
+  onStartEdit: () => emit('startEdit'),
+  onSelectNode: (n) => { selected.value = n },
+})
 // 取消空间布局修改，还原至进入编辑前的快照并自动持久化。
 async function cancelChanges() {
   if (!initialCanvasSnapshot.value || !data.value) return
@@ -88,17 +82,19 @@ async function cancelChanges() {
     await save()
   } catch { /* 忽略还原异常 */ }
 }
-// 保存新书签后在当前桌面创建 1x1 脱离底座图标组件，保持非编辑状态。
-function addNavigation(bookmark: Bookmark) {
+// 保存新书签后在当前桌面创建脱离底座图标组件，保持非编辑状态。
+function addNavigation(bookmark: Bookmark, variant?: string) {
   if (!data.value || saving.value) return
-  const placement = findBottomRightPlacement(data.value.nodes, 1, 1, breakpoint.value)
+  const w = variant === 'pill' ? 2 : 1
+  const placement = findBottomRightPlacement(data.value.nodes, w, 1, breakpoint.value)
   add('bookmark', {
-    ...newWidget('bookmark', crypto.randomUUID()),
+    ...newWidget('bookmark', crypto.randomUUID(), variant),
     title: bookmark.title,
     referenceId: bookmark.id,
+    ...(variant ? { variant } : {}),
     layouts: {
-      desktop: { x: placement.x, y: placement.y, w: 1, h: 1, pinned: true },
-      [breakpoint.value]: { x: placement.x, y: placement.y, w: 1, h: 1, pinned: true },
+      desktop: { x: placement.x, y: placement.y, w, h: 1, pinned: true },
+      [breakpoint.value]: { x: placement.x, y: placement.y, w, h: 1, pinned: true },
     },
     style: { opacity: 100, blur: 0, radius: 16, padding: 8, border: 0, color: '', background: '', frameless: true },
   })
@@ -109,6 +105,7 @@ defineExpose({
   addNavigation,
   openContext,
   cancelChanges,
+  reload,
   toggleTree: () => { showComponentTree.value = !showComponentTree.value },
   openTree: () => { showComponentTree.value = true },
 })
@@ -168,6 +165,24 @@ async function commitDrop(id: string, p: Placement, targetId?: string) {
   const target = data.value.nodes.find(item => item.id === targetId && item.id !== id)
   if (!node) return
   if (!stackMode.value && target && node.type === 'bookmark' && target.type === 'bookmark') {
+    // 两个胶囊信息卡相遇直接在当前行并排变为 1x2，不新建文件夹。
+    if (node.variant === 'pill' && target.variant === 'pill') {
+      const bp = breakpoint.value
+      const targetP = positions.value.get(target.id) ?? target.layouts[bp] ?? target.layouts.desktop
+      const columns = BREAKPOINTS[bp]
+      let targetX = targetP.x
+      let sourceX = targetX + 1
+      if (sourceX >= columns) {
+        targetX = Math.max(0, columns - 2)
+        sourceX = targetX + 1
+      }
+      const tLayout: Placement = { x: targetX, y: targetP.y, w: 1, h: 1, pinned: true }
+      const sLayout: Placement = { x: sourceX, y: targetP.y, w: 1, h: 1, pinned: true }
+      update({ ...target, layouts: { ...target.layouts, desktop: { ...tLayout }, [bp]: { ...tLayout } } })
+      update({ ...node, layouts: { ...node.layouts, desktop: { ...sLayout }, [bp]: { ...sLayout } } })
+      dirty.value = true
+      return
+    }
     if (await merge(node.id, target.id)) emit('refresh')
     return
   }
@@ -219,8 +234,10 @@ const previewPositions = computed(() => {
   return arrangeNodes(nodes, breakpoint.value)
 })
 // 判断组件是否脱离卡片底座。
-function isFrameless(node: WidgetNode) { return node.style?.frameless === true }
-
+function isFrameless(node: WidgetNode) {
+  if (node.type === 'bookmark') return node.style?.frameless !== false
+  return node.style?.frameless === true
+}
 // 统一处理组件添加，自动补全真实分组与书签绑定。
 function handleAddWidget(type: WidgetNode['type'], variant?: string, size?: { w: number; h: number }, frameless?: boolean, refId?: string) {
   let targetRefId = refId
@@ -234,7 +251,6 @@ function handleAddWidget(type: WidgetNode['type'], variant?: string, size?: { w:
   }
   add(type, undefined, variant, size, { frameless, referenceId: targetRefId, title: targetTitle, breakpoint: breakpoint.value })
 }
-
 // 组件树拖拽网格放置预览。
 const libraryPreview = ref<Placement | null>(null)
 // 原生拖拽进入网格计算落点。
@@ -262,9 +278,13 @@ async function drop(event: DragEvent) {
   event.preventDefault()
   const targetP = libraryPreview.value
   libraryPreview.value = null
-  activeDragTreeItem.value = null
   const text = event.dataTransfer?.getData('text/plain') || dragged.value
-  if (saving.value || !data.value || !text.startsWith('new:')) return
+  if (saving.value || !data.value) return
+  if (text.startsWith('folder-item:')) {
+    if (targetP) await handleDropToCanvas(text, targetP)
+    return
+  }
+  if (!text.startsWith('new:')) return
   const parts = text.slice(4).split(':')
   const type = parts[0] as WidgetNode['type']
   const variant = parts[1] || undefined
@@ -382,16 +402,6 @@ onUnmounted(() => {
 
 <template>
   <div class="desktop" @contextmenu="openContext($event)">
-    <div v-if="editing" class="canvas-toolbar">
-      <button type="button" :class="{ primary: showComponentTree }" @click="showComponentTree = !showComponentTree">
-        {{ showComponentTree ? '收起组件树' : '添加组件' }}
-      </button>
-      <select v-model="selectedBreakpoint" aria-label="编辑布局断点"><option value="auto">当前屏幕</option><option value="desktop">桌面 · 12 列</option><option value="laptop">便携本 · 8 列</option><option value="tablet">平板 · 6 列</option><option value="mobile">手机 · 4 列</option></select>
-      <label><input v-model="stackMode" type="checkbox">拖拽叠放</label>
-      <span class="save-status">{{ saving ? '保存中…' : '已自动保存' }}</span>
-      <button :disabled="saving || !initialCanvasSnapshot" type="button" class="btn-cancel-layout" @click="cancelChanges">取消更改</button>
-      <button :disabled="saving" type="button" @click="reload">重置</button>
-    </div>
     <div v-if="error" class="canvas-error" role="alert">{{ error }} <button type="button" @click="reload">重新读取</button></div>
     <p v-if="loading" role="status">正在读取桌面…</p>
     <div v-if="filter" class="filter-bar"><label>筛选书签<input v-model="filter" type="search"></label><button type="button" @click="filter = ''">清除</button></div>
@@ -399,17 +409,10 @@ onUnmounted(() => {
     <!-- 实时悬浮组件树抽屉 -->
     <ComponentTree
       v-if="editing || showComponentTree"
-      :open="showComponentTree"
-      :templates="data?.templates"
-      :groups="groups"
-      :bookmarks="bookmarks"
-      @add="handleAddWidget"
-      @add-template="add($event.type, $event)"
-      @delete-template="deleteTemplate"
-      @import-widget="importWidget"
-      @close="showComponentTree = false"
+      :open="showComponentTree" :templates="data?.templates" :groups="groups" :bookmarks="bookmarks"
+      @add="handleAddWidget" @add-template="add($event.type, $event)" @delete-template="deleteTemplate"
+      @import-widget="importWidget" @close="showComponentTree = false"
     />
-
     <!-- 主桌面画布网格 -->
     <div ref="canvas" class="desktop-grid" :class="{ editing, 'is-dragging': drag.draggingId.value }" :style="{ '--columns': BREAKPOINTS[breakpoint] }" @dragover="libraryOver" @dragleave="libraryLeave" @drop="drop($event)" @click.capture="drag.click">
       <div v-if="drag.preview.value || libraryPreview" class="drop-preview" :style="{ gridColumn: ((drag.preview.value || libraryPreview)!.x + 1) + ' / span ' + (drag.preview.value || libraryPreview)!.w, gridRow: ((drag.preview.value || libraryPreview)!.y + 1) + ' / span ' + (drag.preview.value || libraryPreview)!.h }" aria-hidden="true" />
@@ -442,10 +445,8 @@ onUnmounted(() => {
       </article>
     </div>
     <p v-if="data && !data.nodes.length" class="empty-state">桌面暂无组件<button v-if="editing" type="button" @click="showComponentTree = true">打开组件树</button></p>
-
     <ContextMenu :position="contextPosition" :items="contextItems" @close="contextPosition = null" @action="contextAction" />
     <WidgetEditor :node="selected" :breakpoint="breakpoint" :bookmarks="bookmarks" :groups="groups" @close="selected = null" @save="handleEditorSave" @copy="handleEditorCopy" @template="handleEditorTemplate" @remove="handleEditorRemove" />
-
     <!-- 重新读取确认弹窗 -->
     <AlertModal
       :show="showReloadConfirm"
@@ -480,13 +481,6 @@ onUnmounted(() => {
 .drop-preview { z-index: 0; pointer-events: none; border: 2px solid var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 12%, transparent); border-radius: var(--lh-radius-lg); }
 .is-dragging::before { content: ''; position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(circle, var(--lh-border-hover) 1px, transparent 1px); background-size: calc((100% + var(--lh-grid-gap, 16px)) / var(--columns)) 112px; }
 @media (hover: none) { .widget-tools { opacity: 1; } }
-.canvas-toolbar { font-size: 13px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0 0 28px; }
-.canvas-toolbar button, .canvas-toolbar select { padding: 7px 10px; }
-.canvas-toolbar label { display: flex; align-items: center; gap: 4px; font-size: 12px; }
-.canvas-toolbar input { width: auto; }
-.primary { background: var(--lh-accent); color: var(--lh-accent-text); }
-.save-status { font-size: 12px; color: var(--lh-text-secondary); margin: 0 4px; }
-.btn-cancel-layout { color: var(--lh-text-secondary); }
 .empty-state { text-align: center; padding: 48px 0; }
 .stack-controls { position: absolute; bottom: 3px; right: 6px; display: flex; align-items: center; gap: 5px; font-size: 10px; background: var(--lh-surface); border-radius: 8px; }
 .stack-controls button { padding: 2px 7px; min-height: 24px; }

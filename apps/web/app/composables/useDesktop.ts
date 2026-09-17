@@ -76,11 +76,12 @@ export function useDesktop() {
   // 修改节点时保持原编号与其他配置。
   function update(node: WidgetNode) {
     if (!data.value) return
+    const updated = { ...node }
     const index = data.value.nodes.findIndex(item => item.id === node.id)
     if (index !== -1) {
-      data.value.nodes[index] = { ...data.value.nodes[index]!, ...node }
+      data.value.nodes[index] = { ...data.value.nodes[index]!, ...updated }
     } else {
-      data.value.nodes.push(node)
+      data.value.nodes.push(updated)
     }
     dirty.value = true
   }

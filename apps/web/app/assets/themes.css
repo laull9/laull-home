@@ -57,12 +57,22 @@
 :root[data-theme="pixel"] .search-form,
 :root[data-theme="pixel"] .fab-button,
 :root[data-theme="pixel"] .nav-popover,
-:root[data-theme="pixel"] .modal-container {
+:root[data-theme="pixel"] .modal-container,
+:root[data-theme="pixel"] .pill-layout {
   border-width: 2px !important;
   border-radius: 4px !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   box-shadow: 3px 3px 0 var(--lh-border) !important;
+}
+:root[data-theme="pixel"] .folder-count,
+:root[data-theme="pixel"] .todo-badge,
+:root[data-theme="pixel"] .viewport-badge,
+:root[data-theme="pixel"] .preview-pill,
+:root[data-theme="pixel"] .bookmark-icon-frame,
+:root[data-theme="pixel"] .large-icon-wrapper,
+:root[data-theme="pixel"] .emblem-badge {
+  border-radius: 2px !important;
 }
 :root[data-theme="pixel"] button:not(.engine-trigger):not(.btn-clear),
 :root[data-theme="pixel"] input:not(.search-input),
@@ -91,12 +101,22 @@
 :root[data-theme="brutalist"] .search-form,
 :root[data-theme="brutalist"] .fab-button,
 :root[data-theme="brutalist"] .nav-popover,
-:root[data-theme="brutalist"] .modal-container {
+:root[data-theme="brutalist"] .modal-container,
+:root[data-theme="brutalist"] .pill-layout {
   border: 2px solid var(--lh-border) !important;
   border-radius: 0 !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   box-shadow: 4px 4px 0 var(--lh-border) !important;
+}
+:root[data-theme="brutalist"] .folder-count,
+:root[data-theme="brutalist"] .todo-badge,
+:root[data-theme="brutalist"] .viewport-badge,
+:root[data-theme="brutalist"] .preview-pill,
+:root[data-theme="brutalist"] .bookmark-icon-frame,
+:root[data-theme="brutalist"] .large-icon-wrapper,
+:root[data-theme="brutalist"] .emblem-badge {
+  border-radius: 0 !important;
 }
 :root[data-theme="brutalist"] button:not(.engine-trigger):not(.btn-clear),
 :root[data-theme="brutalist"] input:not(.search-input),
@@ -137,10 +157,20 @@
 }
 :root[data-theme="cyberpunk"] .search-form,
 :root[data-theme="cyberpunk"] .fab-button,
-:root[data-theme="cyberpunk"] .modal-container {
+:root[data-theme="cyberpunk"] .modal-container,
+:root[data-theme="cyberpunk"] .pill-layout {
   border: 1px solid var(--lh-accent) !important;
   border-radius: 6px !important;
   box-shadow: 0 0 12px color-mix(in srgb, var(--lh-accent) 25%, transparent) !important;
+}
+:root[data-theme="cyberpunk"] .folder-count,
+:root[data-theme="cyberpunk"] .todo-badge,
+:root[data-theme="cyberpunk"] .viewport-badge,
+:root[data-theme="cyberpunk"] .preview-pill,
+:root[data-theme="cyberpunk"] .bookmark-icon-frame,
+:root[data-theme="cyberpunk"] .large-icon-wrapper,
+:root[data-theme="cyberpunk"] .emblem-badge {
+  border-radius: 4px !important;
 }
 :root[data-theme="cyberpunk"] input:not(.search-input):focus,
 :root[data-theme="cyberpunk"] select:focus,
@@ -164,10 +194,20 @@
 }
 :root[data-theme="matrix"] .search-form,
 :root[data-theme="matrix"] .fab-button,
-:root[data-theme="matrix"] .modal-container {
+:root[data-theme="matrix"] .modal-container,
+:root[data-theme="matrix"] .pill-layout {
   border: 1px solid var(--lh-border) !important;
   border-radius: 4px !important;
   box-shadow: 0 0 10px color-mix(in srgb, var(--lh-accent) 20%, transparent) !important;
+}
+:root[data-theme="matrix"] .folder-count,
+:root[data-theme="matrix"] .todo-badge,
+:root[data-theme="matrix"] .viewport-badge,
+:root[data-theme="matrix"] .preview-pill,
+:root[data-theme="matrix"] .bookmark-icon-frame,
+:root[data-theme="matrix"] .large-icon-wrapper,
+:root[data-theme="matrix"] .emblem-badge {
+  border-radius: 2px !important;
 }
 :root[data-theme="matrix"] input:not(.search-input):focus,
 :root[data-theme="matrix"] select:focus,

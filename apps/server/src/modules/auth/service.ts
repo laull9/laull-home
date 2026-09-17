@@ -187,8 +187,12 @@ export function createAuthService(db: AppDatabase, config: ServerConfig) {
       db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token))).run()
     },
     // 保留当前设备，撤销同一用户的其他会话。
-    revokeOthers(token: string) {
-      db.delete(sessions).where(ne(sessions.tokenHash, hashToken(token))).run()
+    revokeOthers(userId: number, token: string) {
+      db.delete(sessions).where(and(eq(sessions.userId, userId), ne(sessions.tokenHash, hashToken(token)))).run()
     },
   }
 }
+
+// 导出 AuthService 推导类型。
+export type AuthService = ReturnType<typeof createAuthService>
+

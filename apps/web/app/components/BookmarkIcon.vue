@@ -104,7 +104,7 @@ function handleImageLoad(event: Event) {
   display: inline-grid;
   place-items: center;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: var(--lh-radius-md, 10px);
   overflow: hidden;
   box-sizing: border-box;
   transition: background-color 0.2s ease, box-shadow 0.2s ease, padding 0.2s ease;

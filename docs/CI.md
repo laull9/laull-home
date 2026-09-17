@@ -86,4 +86,4 @@ NODE_ENV=production HOST=127.0.0.1 PORT=3000 bun apps/web/.output/server/index.m
 
 首次创建仓库时先提交 dev，再用同一初始提交建立远端 main 和 dev，随后启用上述保护。必须先有一次 CI 运行，才能在 GitHub 选择 `verify` 为必需检查。
 
-当前仓库未配置 remote，因此本次仅完成工作流、脚本和本地分支约束；远程分支保护与 GitHub Actions 的实际执行尚未验证。
+当前仓库已配置远端 origin 并关联 dev 分支。推送到 GitHub 时需确保远端 main 和 dev 的分支保护及 Actions 权限已按上述要求生效。

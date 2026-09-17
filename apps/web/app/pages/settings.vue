@@ -2,6 +2,7 @@
 import { useSettingsDraft } from '../composables/useSettingsDraft'
 import { type SessionItem } from '@laull-home/shared'
 import AlertModal from '../components/AlertModal.vue'
+import McpSettings from '../components/McpSettings.vue'
 
 // 启用身份鉴权守卫。
 definePageMeta({
@@ -14,7 +15,7 @@ const { setupPrivacyPassword } = useSpaces()
 // 分页由地址参数保留，刷新和浏览器前进后退可恢复。
 const route = useRoute()
 // 设置导航按使用目的分组。
-const pages = [{ id: 'appearance', name: '外观' }, { id: 'wallpaper', name: '壁纸' }, { id: 'search', name: '搜索' }, { id: 'account', name: '账号' }, { id: 'privacy', name: '隐私' }, { id: 'devices', name: '设备' }]
+const pages = [{ id: 'appearance', name: '外观' }, { id: 'wallpaper', name: '壁纸' }, { id: 'search', name: '搜索' }, { id: 'account', name: '账号' }, { id: 'privacy', name: '隐私' }, { id: 'devices', name: '设备' }, { id: 'mcp', name: '开发者 / MCP' }]
 const page = computed(() => pages.find(item => item.id === route.query.page)?.id ?? 'appearance')
 const { draft, ready, state, message, chooseTheme, chooseColor, retry, load } = useSettingsDraft()
 
@@ -273,6 +274,8 @@ async function handleRevokeOthers() {
           </li>
         </ul>
       </section>
+
+      <McpSettings v-if="page === 'mcp'" />
     </main>
     </div>
 

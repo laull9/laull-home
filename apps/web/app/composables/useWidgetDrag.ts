@@ -41,7 +41,7 @@ export function useWidgetDrag(options: {
     if (!options.enabled() || event.button !== 0 || session.value) return
     suppressClick = false
     const target = event.target as HTMLElement
-    if (target.closest('input,textarea,select,[contenteditable],.widget-tools,.stack-controls')) return
+    if (target.closest('input,textarea,select,[contenteditable],.widget-tools,.stack-controls,[data-folder-item]')) return
     const element = event.currentTarget as HTMLElement
     const bounds = element.getBoundingClientRect()
     session.value = { id: node.id, pointer: event.pointerId, startX: event.clientX, startY: event.clientY,

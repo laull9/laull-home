@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import AlertModal from '../components/AlertModal.vue'
 import DesktopCanvas from '../components/desktop/DesktopCanvas.vue'
-import type { Bookmark } from "@laull-home/shared"
+import DesktopEditBar from '../components/desktop/DesktopEditBar.vue'
+import { useDesktopEvents } from '../composables/useDesktopEvents'
+import type { Bookmark, Breakpoint } from "@laull-home/shared"
 
 // 启用身份鉴权守卫，未登录直接进入独立登录页面。
 definePageMeta({
@@ -19,6 +21,11 @@ const pageTitle = ref("我的主页")
 
 // 编辑模式开关状态。
 const isEditMode = ref(false)
+// 编辑工具栏断点与叠放状态。
+const selectedBreakpoint = ref<'auto' | Breakpoint>('auto')
+const stackMode = ref(false)
+const isCanvasSaving = ref(false)
+const isTreeOpen = ref(false)
 // 切换空间前保护画布草稿。
 const canvasDirty = ref(false)
 const showBookmarkManager = ref(false)
@@ -45,11 +52,11 @@ async function quickAdd() {
   finally { quickAdding.value = false }
 }
 
-// 保存书签：仅当在桌面独立新增时创建 1x1 图标组件，文件夹内新增或编辑已有书签只刷新数据。
-async function bookmarkSaved(bookmark?: Bookmark, isFolderAdd?: boolean) {
+// 保存书签：仅当在桌面独立新增时创建图标组件，文件夹内新增或编辑已有书签只刷新数据。
+async function bookmarkSaved(bookmark?: Bookmark, isFolderAdd?: boolean, variant?: string) {
   await loadData(activeSpaceId.value)
   if (bookmark && !isFolderAdd && !editingBookmark.value) {
-    desktopCanvas.value?.addNavigation(bookmark)
+    desktopCanvas.value?.addNavigation(bookmark, variant)
   }
 }
 
@@ -130,6 +137,32 @@ watch(activeSpaceId, async (newSpaceId) => {
   await loadData(newSpaceId)
 })
 
+// 监听 MCP 桌面广播事件并热重载画布或主题。
+useDesktopEvents({
+  onThemeUpdated: async () => {
+    try {
+      const res = await $api.settings.get()
+      if (res.data) {
+        pageTitle.value = res.data.title
+        applyTheme(res.data)
+      }
+    } catch {
+      // 忽略拉取错误
+    }
+  },
+  onWidgetUpdated: async () => {
+    if (!canvasDirty.value && !isEditMode.value) {
+      await loadData(activeSpaceId.value)
+      desktopCanvas.value?.reload()
+    }
+  },
+  onLayoutUpdated: async () => {
+    if (!canvasDirty.value && !isEditMode.value) {
+      desktopCanvas.value?.reload()
+    }
+  },
+})
+
 // 当前选中的空间对象。
 const currentSpace = computed(() => {
   return spaces.value.find(s => s.id === activeSpaceId.value)
@@ -197,6 +230,11 @@ async function handleCancelEdit() {
   await desktopCanvas.value?.cancelChanges()
   isEditMode.value = false
 }
+
+// 重置当前空间布局。
+function handleResetLayout() {
+  desktopCanvas.value?.reload()
+}
 </script>
 
 <template>
@@ -209,19 +247,19 @@ async function handleCancelEdit() {
 
     <!-- 编辑模式生效时的顶部操作提示栏 -->
     <transition name="fade">
-      <div v-if="isEditMode && user" class="edit-mode-bar">
-        <div class="edit-status">
-          <span class="edit-dot" />
-          <span>正在编辑主页</span>
-        </div>
-        <div class="edit-actions">
-          <button type="button" class="btn-sub" @click="openCreateGroupModal">+ 新建分组</button>
-          <button type="button" class="btn-sub" @click="desktopCanvas?.toggleTree()">+ 添加组件</button>
-          <button type="button" class="btn-sub" @click="showBookmarkManager = true">内容归档</button>
-          <button type="button" class="btn-sub" @click="handleCancelEdit">取消更改</button>
-          <button type="button" class="btn-accent" @click="isEditMode = false">完成编辑</button>
-        </div>
-      </div>
+      <DesktopEditBar
+        v-if="isEditMode && user"
+        v-model:selected-breakpoint="selectedBreakpoint"
+        v-model:stack-mode="stackMode"
+        :saving="isCanvasSaving"
+        :tree-open="isTreeOpen"
+        @create-group="openCreateGroupModal"
+        @toggle-tree="desktopCanvas?.toggleTree()"
+        @open-archive="showBookmarkManager = true"
+        @cancel-changes="handleCancelEdit"
+        @reset-layout="handleResetLayout"
+        @finish-edit="isEditMode = false"
+      />
     </transition>
 
     <main class="main-body">
@@ -254,10 +292,14 @@ async function handleCancelEdit() {
         <p v-if="quickError" role="alert">{{ quickError }}</p>
         <DesktopCanvas
           ref="desktopCanvas"
+          v-model:selected-breakpoint="selectedBreakpoint"
+          v-model:stack-mode="stackMode"
           @start-edit="isEditMode = true"
           @quick-add="quickAdd"
           :key="activeSpaceId"
           @dirty="canvasDirty = $event"
+          @saving="isCanvasSaving = $event"
+          @tree-open="isTreeOpen = $event"
           @refresh="loadData(activeSpaceId)"
           :space-id="activeSpaceId"
           :editing="isEditMode"
@@ -326,26 +368,12 @@ async function handleCancelEdit() {
   gap: 12px; font-size: 13px; color: var(--lh-warning-text);
 }
 .banner-link { color: var(--lh-warning); font-weight: 600; text-decoration: underline; }
-.edit-mode-bar {
-  position: sticky; top: 16px; z-index: 50; max-width: 780px; margin: 16px auto 0 auto;
-  padding: 8px 16px; background: var(--lh-surface); border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-full); box-shadow: var(--lh-shadow-dropdown);
-  backdrop-filter: blur(var(--lh-blur)); display: flex; align-items: center; justify-content: space-between;
-}
-.edit-status { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--lh-text); }
-.edit-dot { width: 8px; height: 8px; border-radius: var(--lh-radius-full); background: var(--lh-accent); box-shadow: 0 0 8px var(--lh-accent); }
-.edit-actions { display: flex; align-items: center; gap: 8px; }
 .btn-accent {
   padding: 6px 14px; border: none; border-radius: var(--lh-radius-full);
   background: var(--lh-accent); color: var(--lh-accent-text); font-size: 12px;
   font-weight: 500; cursor: pointer; transition: opacity 0.15s ease;
 }
 .btn-accent:hover { opacity: 0.9; }
-.btn-sub {
-  padding: 6px 12px; border: 1px solid var(--lh-border); border-radius: var(--lh-radius-full);
-  background: var(--lh-surface); color: var(--lh-text); font-size: 12px; cursor: pointer; transition: background 0.15s ease;
-}
-.btn-sub:hover { background: var(--lh-surface-hover); }
 .main-body { flex: 1; max-width: 1440px; width: 100%; margin: 0 auto; padding: 40px 20px 80px 20px; box-sizing: border-box; }
 .privacy-alert-bar {
   display: flex; justify-content: space-between; align-items: center; padding: 10px 16px;
@@ -369,10 +397,4 @@ async function handleCancelEdit() {
 .setup-hint { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 16px; color: var(--lh-text-secondary); font-size: 14px; }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
 .fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(-8px); }
-@media (max-width: 560px) {
-  .edit-mode-bar { margin: 12px 12px 0; padding: 10px 12px; border-radius: 16px; display: block; }
-  .edit-status { margin-bottom: 8px; white-space: nowrap; }
-  .edit-actions { flex-wrap: wrap; gap: 6px; }
-  .btn-sub, .btn-accent { white-space: nowrap; padding: 6px 9px; }
-}
 </style>

@@ -28,11 +28,20 @@ function onItemClick(event: MouseEvent, item: Bookmark) {
     emit('editBookmark', item)
   }
 }
+// 拖动文件夹内图标移出到桌面。
+function handleItemDragStart(event: DragEvent, item: Bookmark) {
+  if (!props.editing) return
+  event.stopPropagation()
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', `folder-item::${item.groupId || ''}:${item.id}`)
+  }
+}
+
 // 点击九宫格空白区域展开详情视窗。
 function handleRootClick(event: MouseEvent) {
-  if (props.editing) return
   const target = event.target as HTMLElement | null
-  if (target?.closest('a, button, input, textarea, select')) return
+  if (target?.closest('input, textarea, select, .widget-tools')) return
   emit('openModal')
 }
 </script>
@@ -55,6 +64,9 @@ function handleRootClick(event: MouseEvent) {
         rel="noopener noreferrer"
         class="launchpad-item"
         :title="item.title"
+        data-folder-item="true"
+        :draggable="editing"
+        @dragstart="handleItemDragStart($event, item)"
         @click="onItemClick($event, item)"
       >
         <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="launchpad-icon" />
@@ -131,7 +143,7 @@ function handleRootClick(event: MouseEvent) {
   color: var(--lh-text-secondary);
   background: var(--lh-surface-hover);
   padding: 1px 6px;
-  border-radius: 9999px;
+  border-radius: var(--lh-radius-sm);
   font-weight: 500;
 }
 .launchpad-grid {
@@ -152,16 +164,22 @@ function handleRootClick(event: MouseEvent) {
   gap: 2px;
   min-width: 0;
   padding: 2px;
-  border-radius: 6px;
+  border-radius: var(--lh-radius-sm);
   background: transparent;
   border: none;
   cursor: pointer;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 .launchpad-item:hover, .launchpad-more-btn:hover {
-  background: var(--lh-surface-hover);
+  transform: translateY(-2px);
 }
 .launchpad-icon {
   --bookmark-icon-size: 22px;
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease;
+}
+.launchpad-item:hover .launchpad-icon {
+  transform: scale(1.1);
+  filter: drop-shadow(0 3px 8px rgba(0, 0, 0, 0.2)) brightness(1.15);
 }
 .launchpad-label {
   font-size: 10px;
@@ -169,6 +187,10 @@ function handleRootClick(event: MouseEvent) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.15s ease;
+}
+.launchpad-item:hover .launchpad-label {
+  color: var(--lh-accent);
 }
 .more-plus {
   width: 22px;

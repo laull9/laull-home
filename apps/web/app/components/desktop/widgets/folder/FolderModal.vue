@@ -10,6 +10,8 @@ const props = defineProps<{
   title: string
   items: Bookmark[]
   editing: boolean
+  folderNodeId?: string
+  folderGroupId?: string
 }>()
 
 // 容器视窗关闭、书签编辑与新增事件。
@@ -17,17 +19,74 @@ const emit = defineEmits<{
   close: []
   editBookmark: [bookmark: Bookmark]
   addBookmark: []
+  refresh: []
 }>()
+
+const { updateBookmark } = useBookmarks()
+const { activeSpaceId } = useSpaces()
 
 // 容器内即时过滤关键字。
 const filterText = ref('')
 // 搜索输入框引用。
 const searchInputRef = ref<HTMLInputElement | null>(null)
+// 正在向外拖拽条目状态。
+const isDraggingOut = ref(false)
+// 外部条目拖入悬浮状态。
+const isDragOver = ref(false)
 // 文件夹弹窗右键菜单。
 const contextPosition = ref<{ x: number; y: number } | null>(null)
 const contextItems = [
   { id: 'add', label: '在此文件夹添加图标' },
 ]
+
+// 拖拽文件夹条目向外移出。
+function handleItemDragStart(event: DragEvent, item: Bookmark) {
+  if (!props.editing) return
+  isDraggingOut.value = true
+  if (event.dataTransfer) {
+    event.dataTransfer.effectAllowed = 'move'
+    event.dataTransfer.setData('text/plain', `folder-item:${props.folderNodeId || ''}:${props.folderGroupId || item.groupId || ''}:${item.id}`)
+  }
+}
+
+// 拖拽结束恢复视窗外观。
+function handleItemDragEnd() {
+  isDraggingOut.value = false
+}
+
+// 悬停在容器视窗上方准备拖入。
+function handleViewportDragOver(event: DragEvent) {
+  if (!props.editing) return
+  event.preventDefault()
+  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
+  isDragOver.value = true
+}
+
+// 离开视窗清除高亮。
+function handleViewportDragLeave() {
+  isDragOver.value = false
+}
+
+// 释放外部条目进入当前文件夹。
+async function handleViewportDrop(event: DragEvent) {
+  if (!props.editing) return
+  event.preventDefault()
+  isDragOver.value = false
+  const text = event.dataTransfer?.getData('text/plain') || ''
+  const targetGroupId = props.folderGroupId || (props.items[0]?.groupId ?? '')
+  if (!text || !targetGroupId) return
+
+  let bookmarkId = ''
+  if (text.startsWith('folder-item:')) {
+    bookmarkId = text.split(':')[3] || ''
+  } else if (text.startsWith('new:bookmark:')) {
+    bookmarkId = text.slice(4).split(':')[5] || ''
+  }
+  if (bookmarkId) {
+    await updateBookmark(bookmarkId, activeSpaceId.value, { groupId: targetGroupId })
+    emit('refresh')
+  }
+}
 
 // 按关键字过滤条目。
 const displayedItems = computed(() => {
@@ -100,11 +159,19 @@ onUnmounted(() => {
       <div
         v-if="show"
         class="container-overlay-backdrop"
+        :class="{ 'dragging-out': isDraggingOut }"
         role="dialog"
         :aria-label="title || '收纳容器'"
         @click="onBackdropClick"
       >
-        <div class="container-viewport" @contextmenu="handleContextMenu">
+        <div
+          class="container-viewport"
+          :class="{ 'drag-target-active': isDragOver }"
+          @dragover="handleViewportDragOver"
+          @dragleave="handleViewportDragLeave"
+          @drop="handleViewportDrop"
+          @contextmenu="handleContextMenu"
+        >
           <!-- 容器顶栏：名称、条目计数、内嵌搜索与退出把手 -->
           <div class="viewport-header">
             <div class="viewport-title-group">
@@ -115,7 +182,10 @@ onUnmounted(() => {
 
             <div class="viewport-controls">
               <div class="inline-search-box">
-                <span class="search-ico">🔍</span>
+                <svg class="search-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <circle cx="11" cy="11" r="8" />
+                  <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                </svg>
                 <input
                   ref="searchInputRef"
                   v-model="filterText"
@@ -158,6 +228,10 @@ onUnmounted(() => {
                 rel="noopener noreferrer"
                 class="grid-item-card"
                 :title="item.title"
+                data-folder-item="true"
+                :draggable="editing"
+                @dragstart="handleItemDragStart($event, item)"
+                @dragend="handleItemDragEnd"
                 @click="onItemClick($event, item)"
               >
                 <div class="item-icon-dock">
@@ -197,6 +271,17 @@ onUnmounted(() => {
   background: color-mix(in srgb, #000 45%, transparent);
   backdrop-filter: blur(var(--lh-blur)) saturate(160%);
   -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%);
+  transition: opacity 0.2s ease, background-color 0.2s ease, backdrop-filter 0.2s ease;
+}
+.container-overlay-backdrop.dragging-out {
+  background: color-mix(in srgb, #000 12%, transparent);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  pointer-events: none;
+}
+.container-overlay-backdrop.dragging-out .container-viewport {
+  opacity: 0.45;
+  pointer-events: auto;
 }
 
 /* 灵动容器视窗主体 */
@@ -209,7 +294,14 @@ onUnmounted(() => {
   border-radius: var(--lh-radius-lg);
   box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-dropdown);
   color: var(--lh-text);
-  overflow: hidden; box-sizing: border-box; transform-origin: center center;
+  overflow: hidden;
+  box-sizing: border-box;
+  transform-origin: center center;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+.container-viewport.drag-target-active {
+  border-color: var(--lh-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lh-accent) 40%, transparent);
 }
 
 :root[data-theme="pixel"] .container-viewport {
@@ -224,13 +316,13 @@ onUnmounted(() => {
 .viewport-title-group { display: flex; align-items: center; gap: 10px; min-width: 0; }
 .folder-emblem { font-size: 22px; line-height: 1; }
 .viewport-title { margin: 0; font-size: 18px; font-weight: 700; color: var(--lh-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.viewport-badge { font-size: 11px; font-weight: 600; color: var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 15%, transparent); padding: 2px 8px; border-radius: 9999px; border: 1px solid color-mix(in srgb, var(--lh-accent) 30%, transparent); white-space: nowrap; }
+.viewport-badge { font-size: 11px; font-weight: 600; color: var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 15%, transparent); padding: 2px 8px; border-radius: var(--lh-radius-sm); border: 1px solid color-mix(in srgb, var(--lh-accent) 30%, transparent); white-space: nowrap; }
 
 /* 顶栏操作：搜索与关闭按钮 */
 .viewport-controls { display: flex; align-items: center; gap: 12px; }
 .inline-search-box { position: relative; display: flex; align-items: center; }
-.search-ico { position: absolute; left: 10px; font-size: 12px; pointer-events: none; opacity: .6; color: var(--lh-text-secondary); }
-.viewport-search-input { width: 160px; padding: 6px 28px; border-radius: 9999px; border: 1px solid var(--lh-border); background: color-mix(in srgb, var(--lh-input-bg) 85%, transparent); color: var(--lh-text); font-size: 12px; outline: none; transition: width 0.2s, border-color 0.2s, box-shadow 0.2s; }
+.search-ico { position: absolute; left: 10px; width: 14px; height: 14px; pointer-events: none; opacity: .7; color: var(--lh-text-secondary); z-index: 2; }
+.viewport-search-input { width: 160px; padding: 6px 28px 6px 30px; border-radius: var(--lh-radius-md); border: 1px solid var(--lh-border); background: color-mix(in srgb, var(--lh-input-bg) 85%, transparent); color: var(--lh-text); font-size: 12px; outline: none; transition: width 0.2s, border-color 0.2s, box-shadow 0.2s; }
 .viewport-search-input:focus { width: 200px; border-color: var(--lh-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--lh-accent) 20%, transparent); }
 .search-clear-btn { position: absolute; right: 8px; background: none; border: none; color: var(--lh-text-secondary); cursor: pointer; padding: 2px; }
 .viewport-close-btn { width: 32px; height: 32px; border-radius: 50%; background: var(--lh-surface-hover); border: 1px solid var(--lh-border); color: var(--lh-text); font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .15s, transform .15s; }
@@ -240,13 +332,14 @@ onUnmounted(() => {
 .viewport-grid-scroller { flex: 1; overflow-y: auto; padding: 24px; min-height: 180px; box-sizing: border-box; }
 .viewport-items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 18px 12px; }
 
-/* 单个条目卡片设计：应用级图标 + 微浮起 */
-.grid-item-card { display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: inherit; padding: 8px 6px; border-radius: 14px; transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.18s; }
-.grid-item-card:hover { transform: translateY(-4px); background: var(--lh-surface-hover); }
-.item-icon-dock { width: 52px; height: 52px; border-radius: var(--lh-radius-md); background: color-mix(in srgb, var(--lh-surface-hover) 80%, transparent); border: 1px solid var(--lh-border); display: flex; align-items: center; justify-content: center; box-shadow: var(--lh-shadow-sm); transition: box-shadow 0.18s, transform 0.18s; }
-.grid-item-card:hover .item-icon-dock { box-shadow: var(--lh-shadow-card); transform: scale(1.04); }
-.item-icon { --bookmark-icon-size: 32px; }
-.item-title { font-size: 12px; font-weight: 500; color: var(--lh-text); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; }
+/* 单个条目卡片设计：应用级图标直接浮起高亮，不唤起深色底遮罩 */
+.grid-item-card { display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: inherit; padding: 6px 4px; border-radius: var(--lh-radius-md); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.grid-item-card:hover { transform: translateY(-4px); }
+.item-icon-dock { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; box-shadow: none; transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease; }
+.grid-item-card:hover .item-icon-dock { transform: scale(1.1); filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.2)) brightness(1.15); }
+.item-icon { --bookmark-icon-size: 34px; }
+.item-title { font-size: 12px; font-weight: 500; color: var(--lh-text); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center; transition: color 0.18s ease; }
+.grid-item-card:hover .item-title { color: var(--lh-accent); }
 
 /* 空状态与底部操作 */
 .viewport-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 48px 0; color: var(--lh-text-secondary); }

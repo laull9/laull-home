@@ -34,6 +34,7 @@ export function createDesktopService(db: AppDatabase) {
           }
         }
         for (const [key, p] of Object.entries(node.layouts)) {
+          if (!p) continue
           if (p.x + p.w > BREAKPOINTS[key as keyof typeof BREAKPOINTS]) throw new BookmarkError(400, '组件超出网格边界')
           if (node.type === 'search' && p.h !== 1) throw new BookmarkError(400, '搜索组件只能占一行')
         }
@@ -52,7 +53,9 @@ export function createDesktopService(db: AppDatabase) {
     // 未保存的旧版主页返回迁移视图。
     get(spaceId: string): Desktop {
       const row = db.select().from(desktops).where(eq(desktops.spaceId, spaceId)).get()
-      return row ? { ...JSON.parse(row.document), revision: row.revision } : initial(spaceId)
+      if (!row) return initial(spaceId)
+      const doc = JSON.parse(row.document) as Desktop
+      return { ...doc, revision: row.revision }
     },
     // 首次写入与后续更新均通过事务检测版本。
     save(spaceId: string, value: Desktop): Desktop | null {
@@ -89,3 +92,7 @@ export function createDesktopService(db: AppDatabase) {
   }
   return service
 }
+
+// 导出 DesktopService 推导类型。
+export type DesktopService = ReturnType<typeof createDesktopService>
+

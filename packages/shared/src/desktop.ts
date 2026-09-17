@@ -65,8 +65,11 @@ export const WIDGET_CATALOG = [
 // 创建继承全局主题的节点。
 export function newWidget(type: WidgetNode['type'], id: string, variant?: string): WidgetNode {
   const entry = WIDGET_CATALOG.find(item => item.type === type)!
+  const defaultW = (type === 'bookmark' && variant === 'pill') ? 2 : entry.w
   return { id, type, title: entry.title, content: '', referenceId: '', timezone: 'Asia/Shanghai', hour12: false,
-    stackId: '', css: '', ...(variant ? { variant } : {}), layouts: { desktop: { x: 0, y: 0, w: entry.w, h: entry.h, pinned: false } } }
+    stackId: '', css: '', ...(variant ? { variant } : {}),
+    ...(type === 'bookmark' ? { style: { opacity: 100, blur: 0, radius: 16, padding: 4, border: 0, color: '', background: '', frameless: true } } : {}),
+    layouts: { desktop: { x: 0, y: 0, w: defaultW, h: entry.h, pinned: false } } }
 }
 // 固定节点优先占位，碰撞与越界自动寻找下一处空位。
 export function arrangeNodes(nodes: WidgetNode[], breakpoint: Breakpoint): Map<string, Placement> {
@@ -78,6 +81,8 @@ export function arrangeNodes(nodes: WidgetNode[], breakpoint: Breakpoint): Map<s
   for (const node of ordered) {
     const saved = node.layouts[breakpoint]
     const p = { ...(saved ?? node.layouts.desktop) }
+    // 胶囊卡片支持 1 列紧凑并排与 2 列完整横向排版。
+    p.w = Math.max(1, Math.min(columns, p.w))
     p.w = Math.min(columns, p.w)
     p.x = Math.min(columns - p.w, p.x)
     if (!saved || !p.pinned) { p.x = 0; p.y = 0 }

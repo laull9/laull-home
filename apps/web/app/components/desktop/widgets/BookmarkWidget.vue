@@ -99,11 +99,12 @@ function handleClick(event: MouseEvent) {
   text-decoration: none;
   color: inherit;
   box-sizing: border-box;
-  transition: transform 0.15s ease, opacity 0.15s ease;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.15s ease;
 }
 
-.bookmark-link:hover {
-  opacity: 0.92;
+.bookmark-link:not(.editing):hover {
+  transform: translateY(-4px);
+  opacity: 1;
 }
 
 /* 经典标准样式 */
@@ -118,6 +119,11 @@ function handleClick(event: MouseEvent) {
 }
 .standard-icon {
   --bookmark-icon-size: 38px;
+  transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), filter 0.22s ease;
+}
+.bookmark-link:not(.editing):hover .standard-icon {
+  transform: scale(1.08);
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.2)) brightness(1.15);
 }
 .standard-title {
   font-size: 12px;
@@ -127,6 +133,10 @@ function handleClick(event: MouseEvent) {
   text-overflow: ellipsis;
   white-space: nowrap;
   text-align: center;
+  transition: color 0.18s ease;
+}
+.bookmark-link:not(.editing):hover .standard-title {
+  color: var(--lh-accent);
 }
 
 /* 质感大图标样式 */
@@ -139,20 +149,21 @@ function handleClick(event: MouseEvent) {
 }
 .large-icon-wrapper {
   padding: 2px;
-  border-radius: 18px;
-  transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  border-radius: var(--widget-radius, var(--lh-radius-lg));
+  transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
-.bookmark-link:hover .large-icon-wrapper {
-  transform: translateY(-2px) scale(1.05);
+.bookmark-link:not(.editing):hover .large-icon-wrapper {
+  transform: scale(1.05);
 }
 .large-icon {
   --bookmark-icon-size: 56px;
 }
 
-/* 胶囊信息卡横向样式 (2x0.5 矮版紧凑排布) */
+/* 胶囊信息卡横向样式 (支持 1x1 紧凑胶囊与 2x1 完整胶囊) */
 .bookmark-link.variant-pill {
   align-items: center;
   justify-content: center;
+  width: 100%;
 }
 .pill-layout {
   width: 100%;
@@ -162,15 +173,16 @@ function handleClick(event: MouseEvent) {
   align-items: center;
   gap: 10px;
   padding: 0 12px;
-  border-radius: 9999px;
+  border-radius: var(--widget-radius, var(--lh-radius-lg));
   background: color-mix(in srgb, var(--lh-surface-hover) 60%, transparent);
   border: 1px solid var(--lh-border);
   box-sizing: border-box;
-  transition: all 0.15s ease;
+  transition: border-color 0.18s ease, background-color 0.18s ease, box-shadow 0.22s ease;
 }
-.bookmark-link:hover .pill-layout {
+.bookmark-link:not(.editing):hover .pill-layout {
   border-color: var(--lh-accent);
   background: var(--lh-surface-hover);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.1);
 }
 .pill-icon {
   --bookmark-icon-size: 26px;
@@ -212,6 +224,23 @@ function handleClick(event: MouseEvent) {
   color: var(--lh-accent);
 }
 
+/* 1 列紧凑或小窗格自适应胶囊 */
+@container (max-width: 136px) {
+  .pill-layout {
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .pill-icon {
+    --bookmark-icon-size: 22px;
+  }
+  .pill-host, .pill-arrow {
+    display: none;
+  }
+  .pill-title {
+    font-size: 11px;
+  }
+}
+
 /* 字母徽章排版样式 */
 .emblem-layout {
   width: 100%;
@@ -225,7 +254,7 @@ function handleClick(event: MouseEvent) {
 .emblem-badge {
   width: 44px;
   height: 44px;
-  border-radius: 14px;
+  border-radius: var(--widget-radius, var(--lh-radius-md));
   background: hsl(var(--badge-hue) 45% 92%);
   color: hsl(var(--badge-hue) 65% 35%);
   display: grid;
@@ -234,6 +263,10 @@ function handleClick(event: MouseEvent) {
   font-weight: 700;
   box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.4), 0 2px 8px rgba(0, 0, 0, 0.05);
   border: 1px solid hsl(var(--badge-hue) 45% 82%);
+  transition: box-shadow 0.22s ease;
+}
+.bookmark-link:not(.editing):hover .emblem-badge {
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.5), 0 8px 16px rgba(0, 0, 0, 0.14);
 }
 :global(html.dark) .emblem-badge {
   background: hsl(var(--badge-hue) 35% 22%);

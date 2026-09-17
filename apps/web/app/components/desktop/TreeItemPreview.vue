@@ -281,7 +281,7 @@ const dayProgress = computed(() => {
 .large-badge { width: 30px; height: 30px; border-radius: 8px; background: var(--lh-accent); color: var(--lh-accent-text); display: flex; align-items: center; justify-content: center; font-size: 14px; box-shadow: 0 2px 6px color-mix(in srgb, var(--lh-accent) 30%, transparent); }
 .large-text { font-size: 10px; font-weight: 500; }
 
-.preview-pill { display: flex; align-items: center; gap: 8px; width: 85%; background: var(--lh-surface); padding: 4px 8px; border-radius: 999px; border: 1px solid var(--lh-border); color: var(--lh-text); }
+.preview-pill { display: flex; align-items: center; gap: 8px; width: 85%; background: var(--lh-surface); padding: 4px 8px; border-radius: var(--lh-radius-full); border: 1px solid var(--lh-border); color: var(--lh-text); }
 .demo-icon { width: 20px; height: 20px; border-radius: 50%; background: #10b981; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 10px; }
 .pill-meta { display: flex; flex-direction: column; }
 .pill-name { font-size: 11px; font-weight: 600; line-height: 1.1; }

@@ -219,5 +219,19 @@ export const migrations = [{
     ALTER TABLE user_settings ADD COLUMN wallpaper_fit_mode TEXT NOT NULL DEFAULT 'cover';
     UPDATE user_settings SET active_wallpaper_pool_id = 'default-pool-' || user_id WHERE active_wallpaper_pool_id IS NULL;
   `,
+}, {
+  // 迁移版本 10：引入 MCP 访问密钥表，支持单用户单向刷新与哈希安全存储。
+  version: 10,
+  // 建立 mcp_keys 表。
+  sql: `
+    CREATE TABLE mcp_keys (
+      user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      key_hash TEXT NOT NULL,
+      key_mask TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+  `,
 }]
+
 

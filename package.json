@@ -21,7 +21,8 @@
     "test:smoke": "bun scripts/smoke.ts",
     "release:verify": "bun scripts/release-policy.ts",
     "release:pack": "bun scripts/package-release.ts",
-    "hooks:install": "git config --local core.hooksPath .githooks"
+    "hooks:install": "git config --local core.hooksPath .githooks",
+    "mcp": "bun apps/server/src/modules/mcp/stdio.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

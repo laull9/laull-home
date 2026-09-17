@@ -59,3 +59,17 @@ POST /api/v1/desktop/:spaceId/merge 接收 desktop、sourceId、targetId，将�
 节点类型白名单、四档坐标与局部样式结构见 packages/shared/src/desktop.ts。单空间最多 120 个节点和 40 个模板，总快照限制 512 KiB。所有响应禁止缓存，模板不跨空间开放。
 
 设置接口新增可选 themeConfig，包含版本、种子色、明暗语义覆盖、玻璃质感和壁纸滤镜。旧客户端省略该字段时保留服务端现值。自定义 CSS 使用展示属性与简单选择器白名单，非法规则返回 400。
+
+## Model Context Protocol (MCP)
+
+| 方法 | 路径 | 认证 | 请求与响应 |
+| --- | --- | --- | --- |
+| GET | /mcp/sse | Bearer <mcp-key> | 建立远程 MCP SSE 通道，下发 endpoint 事件 |
+| POST | /mcp/messages | Bearer <mcp-key> | JSON-RPC 请求，通过 query 携带 sessionId，返回 202 |
+| GET | /desktop/events | Session / 浏览器 | 建立轻量 SSE 广播流，接收 theme.updated / widget.updated / layout.updated |
+| GET | /mcp/key | Session | `{ hasKey, keyMask, createdAt, updatedAt }` 脱敏元数据 |
+| POST | /mcp/key/refresh | Session | `{ key, keyMask, createdAt }` 单向刷新并下发唯一一次明文密钥 |
+| DELETE | /mcp/key | Session | `{ success: true }` 停用并吊销密钥 |
+
+本地标准输入输出模式直接运行 `bun run mcp`，与外部 AI 客户端（如 Claude Desktop）零网络延迟直接交互。
+

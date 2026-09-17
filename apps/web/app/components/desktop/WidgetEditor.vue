@@ -110,7 +110,7 @@ function exportCode() {
         <select v-model="draft.variant">
           <option value="">标准图标 (1×1)</option>
           <option value="large">质感大图标</option>
-          <option value="pill">胶囊信息卡 (横向)</option>
+          <option value="pill">胶囊信息卡 (2×0.5 横向)</option>
           <option value="emblem">字母徽章</option>
         </select>
       </label>

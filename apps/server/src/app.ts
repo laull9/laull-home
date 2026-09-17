@@ -36,6 +36,7 @@ import { createSearchService, SearchEngineError } from './modules/search/service
 import { createSettingsService } from './modules/settings/service'
 import { createSpacesService } from './modules/spaces/service'
 import { createWallpaperService, WallpaperError } from './modules/wallpapers/service'
+import { createMcpProtocolRoutes, createMcpService } from './modules/mcp'
 
 // 检查请求来源是否属于受信任的站点或本地开发环境。
 export function isTrustedOrigin(originHeader: string | null | undefined, refererHeader: string | null | undefined, configOrigin: string): boolean {
@@ -78,6 +79,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
   const searchService = createSearchService(db)
   const faviconService = createFaviconService(config.dataDir)
   const wallpaperService = createWallpaperService(db, config.dataDir)
+  const mcpService = createMcpService(db)
   const cookieOptions = {
     // 限制 Cookie 只能由 HTTP 读取。
     httpOnly: true,
@@ -145,6 +147,9 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       set.headers['content-type'] = icon.contentType
       set.headers['cache-control'] = 'public, max-age=604800, immutable'
       set.headers['access-control-allow-origin'] = '*'
+      if (icon.contentType === 'image/svg+xml') {
+        set.headers['content-security-policy'] = "default-src 'none'; sandbox"
+      }
       return icon.buffer
     }, { params: t.Object({ filename: t.String() }) })
     .get('/wallpapers/image/:filename', ({ params, set, status }) => {
@@ -152,6 +157,9 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       if (!image) return status(404, { code: 'NOT_FOUND', message: '壁纸不存在' })
       set.headers['content-type'] = image.contentType
       set.headers['cache-control'] = 'public, max-age=604800, immutable'
+      if (image.contentType === 'image/svg+xml') {
+        set.headers['content-security-policy'] = "default-src 'none'; sandbox"
+      }
       return image.buffer
     }, { params: t.Object({ filename: t.String() }) })
     .get('/bookmarks/groups', ({ query, cookie, status }) => {
@@ -176,6 +184,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
       return { bookmarks: bookmarksService.listBookmarks(spaceId, isUnlocked, isVisitor, query.groupId) }
     }, { query: t.Object({ spaceId: t.Optional(t.String()), groupId: t.Optional(t.String()) }) })
+    .use(createMcpProtocolRoutes({ mcpService, desktopService: desktop, settingsService: settings }))
     .resolve(({ cookie, status }) => {
       const token = cookie.lh_session!.value
       const user = auth.authenticate(token)
@@ -212,8 +221,8 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       auth.revokeSession(user.id, params.id)
       return { success: true }
     }, { params: t.Object({ id: t.String() }) })
-    .post('/auth/revoke-others', ({ sessionToken }) => {
-      auth.revokeOthers(sessionToken)
+    .post('/auth/revoke-others', ({ user, sessionToken }) => {
+      auth.revokeOthers(user.id, sessionToken)
       return { success: true }
     })
     .get('/settings', ({ user }) => settings.get(user.id))
@@ -347,6 +356,12 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       wallpaperService.delete(user.id, params.id)
       return { success: true }
     }, { params: t.Object({ id: t.String() }) })
+    // 获取当前账号的 MCP 密钥元数据。
+    .get('/mcp/key', ({ user }) => mcpService.getKeyMetadata(user.id))
+    // 签发或单向刷新 MCP 密钥。
+    .post('/mcp/key/refresh', ({ user }) => mcpService.refreshKey(user.id))
+    // 停用并吊销 MCP 密钥。
+    .delete('/mcp/key', ({ user }) => ({ success: mcpService.revokeKey(user.id) }))
 }
 
 // 前端只导入此类型，禁止引入后端运行时代码。

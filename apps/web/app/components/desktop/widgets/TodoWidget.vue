@@ -162,7 +162,7 @@ const stats = computed(() => {
   color: var(--lh-text-secondary);
   background: var(--lh-surface-hover);
   padding: 1px 6px;
-  border-radius: 9999px;
+  border-radius: var(--lh-radius-sm);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
@@ -170,7 +170,7 @@ const stats = computed(() => {
 .todo-mini-bar {
   width: 50px;
   height: 4px;
-  border-radius: 9999px;
+  border-radius: var(--lh-radius-full);
   background: var(--lh-border);
   overflow: hidden;
 }

@@ -160,6 +160,7 @@ test('支持倒数日、待办清单、多形态 variant 及 frameless 无底座
   todo.content = JSON.stringify([{ id: '1', text: '发布新功能', done: true }])
   const folder = newWidget('folder', 'folder-launchpad', 'launchpad')
   const bookmark = newWidget('bookmark', 'bm-pill', 'pill')
+  expect(bookmark.layouts.desktop.w).toBe(2)
   const value = { revision: 0, nodes: [clock, countdown, todo, folder, bookmark], templates: [] }
   const saved = await request('/desktop/default', 'PUT', value, cookie)
   expect(saved.status).toBe(200)
@@ -194,5 +195,27 @@ test('添加组件排布算法：优先现有组件右下角紧邻空位，不�
   const place2 = findBottomRightPlacement([nodeC, nodeD], 1, 1, 'desktop')
   expect(place2).toEqual({ x: 2, y: 1 })
 })
+
+test('胶囊信息卡书签支持 1 列紧凑并排与持久化', async () => {
+  // 1. arrangeNodes 尊重 1 列胶囊卡片，支持 1x2 并排
+  const pill1 = newWidget('bookmark', 'bm-pill-1', 'pill')
+  pill1.layouts.desktop = { x: 0, y: 0, w: 1, h: 1, pinned: true }
+  const pill2 = newWidget('bookmark', 'bm-pill-2', 'pill')
+  pill2.layouts.desktop = { x: 1, y: 0, w: 1, h: 1, pinned: true }
+  const placements = arrangeNodes([pill1, pill2], 'desktop')
+  expect(placements.get('bm-pill-1')?.w).toBe(1)
+  expect(placements.get('bm-pill-2')?.w).toBe(1)
+  expect(placements.get('bm-pill-1')?.x).toBe(0)
+  expect(placements.get('bm-pill-2')?.x).toBe(1)
+
+  // 2. 服务端保存与读取 1 列胶囊卡片完整保留布局
+  const { request, cookie } = await fixture()
+  const doc = { revision: 0, nodes: [pill1, pill2], templates: [] }
+  await request('/desktop/default', 'PUT', doc, cookie)
+  const fetched = await (await request('/desktop/default', 'GET', undefined, cookie)).json() as Desktop
+  expect(fetched.nodes[0]?.layouts.desktop.w).toBe(1)
+  expect(fetched.nodes[1]?.layouts.desktop.w).toBe(1)
+})
+
 
 

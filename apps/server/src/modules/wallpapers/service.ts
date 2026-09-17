@@ -1,6 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
-import { extname, resolve } from 'node:path'
-import { and, desc, eq, inArray, sql } from 'drizzle-orm'
+import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import {
   isValidSafeUrl,
   WALLPAPER_FIT_MODES,
@@ -15,6 +13,7 @@ import {
 } from '@laull-home/shared'
 import type { AppDatabase } from '../../db'
 import { userSettings, wallpaperPools, wallpapers } from '../../db/schema'
+import { createWallpaperStorage, type LocalImageContent } from './storage'
 
 // 壁纸服务业务异常类。
 export class WallpaperError extends Error {
@@ -24,19 +23,6 @@ export class WallpaperError extends Error {
     this.name = 'WallpaperError'
   }
 }
-
-// 允许上传的图片 MIME 类型与扩展名映射。
-const ALLOWED_MIME_TYPES: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-  'image/avif': 'avif',
-  'image/svg+xml': 'svg',
-}
-
-// 允许的单张图片最大体积（15MB）。
-const MAX_FILE_SIZE = 15 * 1024 * 1024
 
 // 规范化填充模式取值。
 function sanitizeFitMode(mode?: string | null): WallpaperFitMode | null {
@@ -49,22 +35,8 @@ function sanitizeFitMode(mode?: string | null): WallpaperFitMode | null {
 
 // 创建壁纸池管理与安全文件存储服务。
 export function createWallpaperService(db: AppDatabase, dataDir: string) {
-  // 本地持久化壁纸存放目录。
-  const wallpapersDir = resolve(dataDir, 'wallpapers')
-  if (!existsSync(wallpapersDir)) mkdirSync(wallpapersDir, { recursive: true })
-
-  // 联动清理本地物理图片文件。
-  function cleanupLocalFile(url: string) {
-    if (url.startsWith('/api/v1/wallpapers/image/')) {
-      const filename = url.slice('/api/v1/wallpapers/image/'.length)
-      if (/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$/.test(filename)) {
-        const filePath = resolve(wallpapersDir, filename)
-        if (existsSync(filePath)) {
-          try { unlinkSync(filePath) } catch { /* 忽略删除残留 */ }
-        }
-      }
-    }
-  }
+  // 本地物理文件安全读写与清理管理器。
+  const storage = createWallpaperStorage(dataDir)
 
   // 确保用户至少拥有一个系统默认图片池。
   function ensureDefaultPool(userId: number): { id: string; name: string } {
@@ -89,7 +61,7 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
 
     db.update(userSettings)
       .set({ activeWallpaperPoolId: poolId })
-      .where(and(eq(userSettings.userId, userId), sql`${userSettings.activeWallpaperPoolId} IS NULL`))
+      .where(and(eq(userSettings.userId, userId), isNull(userSettings.activeWallpaperPoolId)))
       .run()
 
     return defaultPool
@@ -134,7 +106,7 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
 
       const counts = db.select({
         poolId: wallpapers.poolId,
-        count: sql<number>`count(*)`.as('count'),
+        count: count(),
       })
         .from(wallpapers)
         .where(eq(wallpapers.userId, userId))
@@ -202,7 +174,7 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
         .where(and(eq(wallpaperPools.id, poolId), eq(wallpaperPools.userId, userId)))
         .run()
 
-      const countRow = db.select({ count: sql<number>`count(*)` })
+      const countRow = db.select({ count: count() })
         .from(wallpapers)
         .where(and(eq(wallpapers.userId, userId), eq(wallpapers.poolId, poolId)))
         .get()
@@ -237,7 +209,7 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
         .where(and(eq(wallpapers.poolId, poolId), eq(wallpapers.userId, userId)))
         .all()
       for (const item of itemsInPool) {
-        if (item.sourceType === 'upload') cleanupLocalFile(item.url)
+        if (item.sourceType === 'upload') storage.cleanupLocalFile(item.url)
       }
 
       const remainingPool = userPools.find(p => p.id !== poolId)!
@@ -390,7 +362,7 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
       if (!existing) throw new WallpaperError(404, '壁纸不存在')
 
       if (existing.sourceType === 'upload') {
-        cleanupLocalFile(existing.url)
+        storage.cleanupLocalFile(existing.url)
       }
 
       db.delete(wallpapers)
@@ -411,7 +383,7 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
 
       for (const item of existingItems) {
         if (item.sourceType === 'upload') {
-          cleanupLocalFile(item.url)
+          storage.cleanupLocalFile(item.url)
         }
       }
 
@@ -427,18 +399,8 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
 
     // 上传本地图片并加入指定图片池。
     async saveUpload(userId: number, file: Blob, customName?: string, poolId?: string, fitMode?: string): Promise<WallpaperItem> {
-      if (!file || file.size === 0) throw new WallpaperError(400, '请选择要上传的图片文件')
-      if (file.size > MAX_FILE_SIZE) throw new WallpaperError(400, '图片文件体积不能超过 15MB')
-
-      const mime = file.type
-      const ext = ALLOWED_MIME_TYPES[mime]
-      if (!ext) throw new WallpaperError(400, '仅支持 JPG、PNG、WebP、GIF、AVIF 与 SVG 图片格式')
-
       const targetPoolId = resolveTargetPoolId(userId, poolId)
-      const filename = `${crypto.randomUUID()}.${ext}`
-      const targetPath = resolve(wallpapersDir, filename)
-      const buffer = Buffer.from(await file.arrayBuffer())
-      writeFileSync(targetPath, buffer)
+      const { relativeUrl } = await storage.saveUploadFile(file)
 
       let displayName = customName?.trim()
       if (!displayName || displayName === 'undefined') {
@@ -452,7 +414,7 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
         userId,
         poolId: targetPoolId,
         name: displayName.slice(0, 100),
-        url: `/api/v1/wallpapers/image/${filename}`,
+        url: relativeUrl,
         sourceType: 'upload',
         fitMode: sanitizeFitMode(fitMode),
         createdAt: now,
@@ -473,25 +435,8 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
     },
 
     // 读取本地图片二进制内容与类型。
-    getImage(filename: string): { buffer: Buffer, contentType: string } | null {
-      // 严格文件名正则校验防范路径穿越。
-      if (!/^[a-zA-Z0-9_-]+\.[a-zA-Z0-9]+$/.test(filename)) return null
-      const filePath = resolve(wallpapersDir, filename)
-      if (!existsSync(filePath)) return null
-
-      const ext = extname(filename).toLowerCase().replace('.', '')
-      const mimeMap: Record<string, string> = {
-        jpg: 'image/jpeg',
-        jpeg: 'image/jpeg',
-        png: 'image/png',
-        webp: 'image/webp',
-        gif: 'image/gif',
-        avif: 'image/avif',
-        svg: 'image/svg+xml',
-      }
-      const contentType = mimeMap[ext] ?? 'application/octet-stream'
-      const buffer = readFileSync(filePath)
-      return { buffer, contentType }
+    getImage(filename: string): LocalImageContent | null {
+      return storage.getImage(filename)
     },
   }
 }

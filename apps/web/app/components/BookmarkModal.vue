@@ -13,7 +13,7 @@ const props = defineProps<{
 // 组件事件派发。
 const emit = defineEmits<{
   (e: "close"): void
-  (e: "saved", bookmark?: Bookmark, isFolderAdd?: boolean): void
+  (e: "saved", bookmark?: Bookmark, isFolderAdd?: boolean, variant?: string): void
 }>()
 
 // 书签领域数据操作接口。
@@ -24,6 +24,7 @@ const formTitle = ref("")
 const formUrl = ref("")
 const formIconUrl = ref("")
 const formGroupId = ref("")
+const formVariant = ref("")
 const formIsPublic = ref(true)
 const fetchingIcon = ref(false)
 const errorMessage = ref("")
@@ -33,6 +34,7 @@ const submitting = ref(false)
 watch(() => props.show, (showing) => {
   if (!showing) return
   errorMessage.value = ""
+  formVariant.value = ""
   if (props.editingBookmark) {
     formTitle.value = props.editingBookmark.title
     formUrl.value = props.editingBookmark.url
@@ -112,7 +114,7 @@ async function handleSubmit() {
       })
     }
     const isFolderAdd = Boolean(props.targetGroupId || effectiveGroupId)
-    emit("saved", saved, isFolderAdd)
+    emit("saved", saved, isFolderAdd, formVariant.value)
     emit("close")
   } catch (err: unknown) {
     errorMessage.value = err instanceof Error ? err.message : "保存失败"
@@ -163,6 +165,16 @@ async function handleSubmit() {
           <option v-for="g in groups" :key="g.id" :value="g.id">
             {{ g.name }}
           </option>
+        </select>
+      </div>
+
+      <div v-if="!formGroupId" class="field">
+        <label>显示方式</label>
+        <select v-model="formVariant">
+          <option value="">标准图标 (1×1 经典图标)</option>
+          <option value="large">质感大图标 (1×1 纯净图标)</option>
+          <option value="pill">胶囊信息卡 (横向药丸信息卡)</option>
+          <option value="emblem">字母徽章 (1×1 字母徽标)</option>
         </select>
       </div>
 

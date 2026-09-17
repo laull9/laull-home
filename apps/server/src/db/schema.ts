@@ -267,3 +267,18 @@ export const wallpapers = sqliteTable('wallpapers', {
   index('idx_wallpapers_pool').on(table.poolId),
 ])
 
+// MCP 访问密钥表定义，每个用户仅维护单个有效密钥。
+export const mcpKeys = sqliteTable('mcp_keys', {
+  // 所属用户编号。
+  userId: integer('user_id').primaryKey().references(() => users.id, { onDelete: 'cascade' }),
+  // 密钥原文的 SHA-256 哈希摘要。
+  keyHash: text('key_hash').notNull(),
+  // 脱敏展示的末尾掩码文本。
+  keyMask: text('key_mask').notNull(),
+  // 密钥生成时间戳。
+  createdAt: integer('created_at').notNull(),
+  // 密钥刷新时间戳。
+  updatedAt: integer('updated_at').notNull(),
+})
+
+

@@ -79,3 +79,7 @@ export function createSettingsService(db: AppDatabase) {
     },
   }
 }
+
+// 导出 SettingsService 推导类型。
+export type SettingsService = ReturnType<typeof createSettingsService>
+

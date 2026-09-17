@@ -157,11 +157,23 @@ test('本地图片上传：格式校验、安全存储、静态访问与级联�
   const bytes = new Uint8Array(await getImgRes.arrayBuffer())
   expect(bytes[0]).toBe(0x52)
 
-  // 4. 路径穿越非法请求阻断。
+  // 4. 上传合法 SVG 图片并校验返回的 CSP 响应头。
+  const svgContent = '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><circle cx="50" cy="50" r="40"/></svg>'
+  const svgForm = new FormData()
+  svgForm.append('file', new Blob([svgContent], { type: 'image/svg+xml' }), 'vector.svg')
+  const svgUpload = await request('/wallpapers/upload', 'POST', svgForm, cookie)
+  expect(svgUpload.status).toBe(200)
+  const svgItem = (await svgUpload.json()).wallpaper as WallpaperItem
+  const svgRes = await request(svgItem.url.replace('/api/v1', ''), 'GET')
+  expect(svgRes.status).toBe(200)
+  expect(svgRes.headers.get('content-type')).toBe('image/svg+xml')
+  expect(svgRes.headers.get('content-security-policy')).toContain("default-src 'none'")
+
+  // 5. 路径穿越非法请求阻断。
   const traversalRes = await request('/wallpapers/image/..%2f..%2fpackage.json', 'GET')
   expect(traversalRes.status).toBe(404)
 
-  // 5. 删除壁纸后本地存储联动清理。
+  // 6. 删除壁纸后本地存储联动清理。
   const delRes = await request(`/wallpapers/${item.id}`, 'DELETE', undefined, cookie)
   expect(delRes.status).toBe(200)
   const afterDelImg = await request(imagePath, 'GET')
