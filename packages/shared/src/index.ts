@@ -1,6 +1,7 @@
 import { themeConfigSchema } from './theme'
 export * from './desktop'
 export * from './theme'
+export * from './wallpaper'
 import { Type, type Static } from '@sinclair/typebox'
 
 // 登录输入限制用于前后端一致校验。
@@ -29,6 +30,16 @@ export const settingsSchema = Type.Object({
   wallpaperAutoRotate: Type.Optional(Type.Boolean()),
   // 壁纸定时轮换间隔时间（分钟）。
   wallpaperRotateInterval: Type.Optional(Type.Integer({ minimum: 1, maximum: 10080 })),
+  // 当前使用的图片池标识。
+  activeWallpaperPoolId: Type.Optional(Type.Union([Type.String(), Type.Null()])),
+  // 全局默认壁纸填充模式。
+  wallpaperFitMode: Type.Optional(Type.Union([
+    Type.Literal('cover'),
+    Type.Literal('contain'),
+    Type.Literal('fill'),
+    Type.Literal('center'),
+    Type.Literal('tile'),
+  ])),
   // 结构化主题参数支持跨端同步。
   themeConfig: Type.Optional(themeConfigSchema),
   // 自定义 CSS 覆盖样式规则。
@@ -259,12 +270,16 @@ export const wallpaperItemSchema = Type.Object({
   id: Type.String(),
   // 所属用户编号。
   userId: Type.Integer(),
+  // 所属图片池标识。
+  poolId: Type.String(),
   // 壁纸名称。
   name: Type.String({ minLength: 1, maxLength: 100 }),
   // 壁纸访问地址。
   url: Type.String({ minLength: 1, maxLength: 1024 }),
   // 来源类型：本地上传或外部 URL 导入。
   sourceType: Type.Union([Type.Literal('upload'), Type.Literal('url')]),
+  // 独立填充模式（可选，auto 或 null 代表跟随全局）。
+  fitMode: Type.Optional(Type.Union([Type.String(), Type.Null()])),
   // 创建时间戳。
   createdAt: Type.Integer(),
   // 更新时间戳。
@@ -276,10 +291,14 @@ export type WallpaperItem = Static<typeof wallpaperItemSchema>
 
 // 导入外部壁纸请求结构。
 export const createWallpaperSchema = Type.Object({
+  // 所属图片池标识（可选，默认当前图片池）。
+  poolId: Type.Optional(Type.String({ minLength: 1 })),
   // 壁纸展示名称。
   name: Type.String({ minLength: 1, maxLength: 100 }),
   // 图片外部 URL 地址。
   url: Type.String({ minLength: 1, maxLength: 1024 }),
+  // 独立填充模式（可选）。
+  fitMode: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 }, { additionalProperties: false })
 
 // 导入外部壁纸输入类型。
@@ -287,10 +306,14 @@ export type CreateWallpaperInput = Static<typeof createWallpaperSchema>
 
 // 更新壁纸条目请求结构。
 export const updateWallpaperSchema = Type.Object({
+  // 转移所属图片池（可选）。
+  poolId: Type.Optional(Type.String({ minLength: 1 })),
   // 壁纸展示名称。
   name: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
   // 图片外部 URL 地址。
   url: Type.Optional(Type.String({ minLength: 1, maxLength: 1024 })),
+  // 独立填充模式（可选，传 auto 或 null 表示恢复跟随全局）。
+  fitMode: Type.Optional(Type.Union([Type.String(), Type.Null()])),
 }, { additionalProperties: false })
 
 // 更新壁纸条目输入类型。

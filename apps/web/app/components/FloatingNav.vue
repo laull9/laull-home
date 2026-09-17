@@ -388,11 +388,12 @@ onUnmounted(() => {
 }
 
 .text-danger {
-  color: #ef4444;
+  color: var(--lh-danger);
 }
 
 .text-danger:hover {
-  background: rgba(239, 68, 68, 0.1);
+  background: var(--lh-danger-bg);
+  color: var(--lh-danger-hover);
 }
 
 .pop-enter-active,

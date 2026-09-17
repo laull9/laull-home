@@ -60,8 +60,9 @@ function handleContextAction(id: string) {
   }
 }
 
-// 监听键盘 ESC 快速退出容器。
+// 监听键盘 ESC 快速退出容器，上层弹窗消费后自动忽略。
 function handleKeydown(event: KeyboardEvent) {
+  if (event.defaultPrevented) return
   if (props.show && event.key === 'Escape') {
     event.preventDefault()
     emit('close')

@@ -1,4 +1,11 @@
-import type { CreateWallpaperInput, HomeSettings, UpdateWallpaperInput, WallpaperItem } from '@laull-home/shared'
+import type {
+  BatchWallpaperItem,
+  CreateWallpaperInput,
+  HomeSettings,
+  UpdateWallpaperInput,
+  WallpaperItem,
+  WallpaperPool,
+} from '@laull-home/shared'
 
 // 全局自动轮换定时器引用。
 let rotateTimer: ReturnType<typeof setInterval> | null = null
@@ -9,20 +16,128 @@ export function useWallpapers() {
   const { settings, applyTheme } = useTheme()
   const { user } = useAuth()
 
-  // 全局共享壁纸池列表。
+  // 全局共享图片池列表。
+  const pools = useState<WallpaperPool[]>('wallpapers:pools', () => [])
+  // 当前界面选中的查看图片池标识。
+  const selectedPoolId = useState<string>('wallpapers:selectedPoolId', () => '')
+  // 全局共享当前选中图片池的壁纸列表。
   const wallpapers = useState<WallpaperItem[]>('wallpapers:list', () => [])
   // 请求加载中状态。
   const loading = ref(false)
   // 操作错误提示。
   const errorMsg = ref('')
 
-  // 获取壁纸列表。
-  async function fetchWallpapers(): Promise<WallpaperItem[]> {
+  // 获取所有图片池列表。
+  async function fetchPools(): Promise<WallpaperPool[]> {
+    if (!user.value) return []
+    try {
+      const res = await $api.wallpapers.pools.get()
+      if (res.data) {
+        pools.value = res.data.pools
+        if (!selectedPoolId.value || !pools.value.some(p => p.id === selectedPoolId.value)) {
+          selectedPoolId.value = settings.value?.activeWallpaperPoolId || pools.value[0]?.id || ''
+        }
+        return res.data.pools
+      }
+      return []
+    } catch (err: unknown) {
+      errorMsg.value = err instanceof Error ? err.message : '获取图片池列表失败'
+      return []
+    }
+  }
+
+  // 创建新图片池。
+  async function createPool(name: string): Promise<WallpaperPool | null> {
+    errorMsg.value = ''
+    try {
+      const res = await $api.wallpapers.pools.post({ name })
+      if (res.data) {
+        const pool = res.data.pool
+        pools.value = [...pools.value, pool]
+        selectedPoolId.value = pool.id
+        wallpapers.value = []
+        return pool
+      }
+      throw new Error(res.error?.value ? String(res.error.value) : '创建图片池失败')
+    } catch (err: unknown) {
+      errorMsg.value = err instanceof Error ? err.message : '创建图片池失败'
+      throw err
+    }
+  }
+
+  // 更新图片池名称。
+  async function updatePool(id: string, name: string): Promise<WallpaperPool | null> {
+    errorMsg.value = ''
+    try {
+      const res = await $api.wallpapers.pools({ id }).put({ name })
+      if (res.data) {
+        const updated = res.data.pool
+        pools.value = pools.value.map(p => p.id === id ? updated : p)
+        return updated
+      }
+      throw new Error(res.error?.value ? String(res.error.value) : '更新图片池失败')
+    } catch (err: unknown) {
+      errorMsg.value = err instanceof Error ? err.message : '更新图片池失败'
+      throw err
+    }
+  }
+
+  // 删除图片池。
+  async function deletePool(id: string): Promise<boolean> {
+    errorMsg.value = ''
+    try {
+      const res = await $api.wallpapers.pools({ id }).delete()
+      if (res.data?.success) {
+        pools.value = pools.value.filter(p => p.id !== id)
+        if (selectedPoolId.value === id) {
+          selectedPoolId.value = pools.value[0]?.id || ''
+          if (selectedPoolId.value) {
+            await fetchWallpapers(selectedPoolId.value)
+          } else {
+            wallpapers.value = []
+          }
+        }
+        return true
+      }
+      throw new Error(res.error?.value ? String(res.error.value) : '删除图片池失败')
+    } catch (err: unknown) {
+      errorMsg.value = err instanceof Error ? err.message : '删除图片池失败'
+      throw err
+    }
+  }
+
+  // 切换并将指定图片池设为当前使用。
+  async function setActivePool(poolId: string): Promise<boolean> {
+    if (!settings.value) return false
+    errorMsg.value = ''
+    try {
+      const nextSettings: HomeSettings = {
+        ...settings.value,
+        activeWallpaperPoolId: poolId,
+      }
+      applyTheme(nextSettings)
+      if (user.value) {
+        const res = await $api.settings.put(nextSettings)
+        if (res.data) {
+          settings.value.revision = res.data.revision
+          settings.value.activeWallpaperPoolId = poolId
+        }
+      }
+      return true
+    } catch (err: unknown) {
+      errorMsg.value = err instanceof Error ? err.message : '设置当前使用图片池失败'
+      throw err
+    }
+  }
+
+  // 获取壁纸列表（支持按池筛选）。
+  async function fetchWallpapers(poolId?: string): Promise<WallpaperItem[]> {
     if (!user.value) return []
     loading.value = true
     errorMsg.value = ''
     try {
-      const res = await $api.wallpapers.get()
+      const targetId = poolId || selectedPoolId.value || settings.value?.activeWallpaperPoolId
+      const res = await $api.wallpapers.get({ query: targetId ? { poolId: targetId } : {} })
       if (res.data) {
         wallpapers.value = res.data.wallpapers
         return res.data.wallpapers
@@ -40,9 +155,12 @@ export function useWallpapers() {
   async function addWallpaper(input: CreateWallpaperInput): Promise<WallpaperItem | null> {
     errorMsg.value = ''
     try {
-      const res = await $api.wallpapers.post(input)
+      const targetPool = input.poolId || selectedPoolId.value
+      const res = await $api.wallpapers.post({ ...input, poolId: targetPool })
       if (res.data) {
         wallpapers.value = [res.data.wallpaper, ...wallpapers.value]
+        const pool = pools.value.find(p => p.id === targetPool)
+        if (pool && pool.count !== undefined) pool.count++
         return res.data.wallpaper
       }
       throw new Error(res.error?.value ? String(res.error.value) : '添加失败')
@@ -52,13 +170,36 @@ export function useWallpapers() {
     }
   }
 
-  // 上传本地图片文件。
-  async function uploadWallpaper(file: File, name?: string): Promise<WallpaperItem | null> {
+  // 批量导入外部图片链接。
+  async function addWallpapersBatch(items: BatchWallpaperItem[], poolId?: string): Promise<WallpaperItem[]> {
     errorMsg.value = ''
     try {
-      const res = await $api.wallpapers.upload.post({ file, name })
+      const targetPool = poolId || selectedPoolId.value
+      const res = await $api.wallpapers.batch.post({ items, poolId: targetPool })
+      if (res.data) {
+        const added = res.data.wallpapers
+        wallpapers.value = [...added, ...wallpapers.value]
+        const pool = pools.value.find(p => p.id === targetPool)
+        if (pool && pool.count !== undefined) pool.count += added.length
+        return added
+      }
+      throw new Error(res.error?.value ? String(res.error.value) : '批量导入失败')
+    } catch (err: unknown) {
+      errorMsg.value = err instanceof Error ? err.message : '批量导入失败'
+      throw err
+    }
+  }
+
+  // 上传本地图片文件。
+  async function uploadWallpaper(file: File, name?: string, poolId?: string, fitMode?: string): Promise<WallpaperItem | null> {
+    errorMsg.value = ''
+    try {
+      const targetPool = poolId || selectedPoolId.value
+      const res = await $api.wallpapers.upload.post({ file, name, poolId: targetPool, fitMode })
       if (res.data) {
         wallpapers.value = [res.data.wallpaper, ...wallpapers.value]
+        const pool = pools.value.find(p => p.id === targetPool)
+        if (pool && pool.count !== undefined) pool.count++
         return res.data.wallpaper
       }
       throw new Error(res.error?.value ? String(res.error.value) : '上传失败')
@@ -85,13 +226,15 @@ export function useWallpapers() {
     }
   }
 
-  // 删除壁纸。
+  // 删除单张壁纸。
   async function deleteWallpaper(id: string): Promise<boolean> {
     errorMsg.value = ''
     try {
       const res = await $api.wallpapers({ id }).delete()
       if (res.data?.success) {
         wallpapers.value = wallpapers.value.filter(item => item.id !== id)
+        const pool = pools.value.find(p => p.id === selectedPoolId.value)
+        if (pool && pool.count !== undefined) pool.count = Math.max(0, pool.count - 1)
         return true
       }
       throw new Error(res.error?.value ? String(res.error.value) : '删除失败')
@@ -101,14 +244,37 @@ export function useWallpapers() {
     }
   }
 
+  // 批量删除壁纸。
+  async function deleteWallpapersBatch(ids: string[]): Promise<boolean> {
+    if (!ids || ids.length === 0) return false
+    errorMsg.value = ''
+    try {
+      const res = await $api.wallpapers['batch-delete'].post({ ids })
+      if (res.data?.success) {
+        const set = new Set(ids)
+        wallpapers.value = wallpapers.value.filter(item => !set.has(item.id))
+        const pool = pools.value.find(p => p.id === selectedPoolId.value)
+        if (pool && pool.count !== undefined) {
+          pool.count = Math.max(0, pool.count - ids.length)
+        }
+        return true
+      }
+      throw new Error(res.error?.value ? String(res.error.value) : '批量删除失败')
+    } catch (err: unknown) {
+      errorMsg.value = err instanceof Error ? err.message : '批量删除失败'
+      throw err
+    }
+  }
+
   // 轮换切换至下一张壁纸。
   async function rotateNext(): Promise<{ success: boolean; url?: string; reason?: string }> {
+    const activePoolId = settings.value?.activeWallpaperPoolId || pools.value[0]?.id
     let pool = wallpapers.value
-    if (pool.length === 0) {
-      pool = await fetchWallpapers()
+    if (pool.length === 0 || (activePoolId && pool[0] && pool[0].poolId !== activePoolId)) {
+      pool = await fetchWallpapers(activePoolId)
     }
     if (pool.length === 0) {
-      return { success: false, reason: '图片池为空，请先在设置中添加壁纸' }
+      return { success: false, reason: '当前使用的图片池为空，请先添加壁纸' }
     }
 
     const currentUrl = settings.value?.wallpaperValue ?? ''
@@ -125,7 +291,6 @@ export function useWallpapers() {
       }
       applyTheme(nextSettings)
 
-      // 登录状态在后台同步保存当前选择。
       if (user.value) {
         try {
           const res = await $api.settings.put(nextSettings)
@@ -159,14 +324,23 @@ export function useWallpapers() {
   }
 
   return {
+    pools,
+    selectedPoolId,
     wallpapers,
     loading,
     errorMsg,
+    fetchPools,
+    createPool,
+    updatePool,
+    deletePool,
+    setActivePool,
     fetchWallpapers,
     addWallpaper,
+    addWallpapersBatch,
     uploadWallpaper,
     updateWallpaper,
     deleteWallpaper,
+    deleteWallpapersBatch,
     rotateNext,
     setupAutoRotate,
   }

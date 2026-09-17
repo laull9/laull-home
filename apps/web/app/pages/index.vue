@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import AlertModal from '../components/AlertModal.vue'
 import DesktopCanvas from '../components/desktop/DesktopCanvas.vue'
 import type { Bookmark } from "@laull-home/shared"
 
@@ -27,6 +28,10 @@ const quickAdding = ref(false)
 const quickError = ref('')
 const targetGroupId = ref<string | null>(null)
 
+// 空间切换确认弹窗状态。
+const pendingSpaceId = ref<string | null>(null)
+const showSpaceSwitchConfirm = ref(false)
+
 // 快速添加独立桌面图标，不强制开启编辑模式，不自动创建多余分组。
 async function quickAdd() {
   if (quickAdding.value || !user.value) return
@@ -51,9 +56,22 @@ async function bookmarkSaved(bookmark?: Bookmark, isFolderAdd?: boolean) {
 // 当前空间有草稿时由用户决定是否放弃。
 function selectSpace(id: string) {
   if (id === activeSpaceId.value) return
-  if (canvasDirty.value && !confirm('放弃未保存的布局修改并切换空间？')) return
-  canvasDirty.value = false
+  if (canvasDirty.value) {
+    pendingSpaceId.value = id
+    showSpaceSwitchConfirm.value = true
+    return
+  }
   activeSpaceId.value = id
+}
+
+// 确认切换空间并丢弃当前未保存草稿。
+function handleConfirmSpaceSwitch() {
+  if (pendingSpaceId.value) {
+    canvasDirty.value = false
+    activeSpaceId.value = pendingSpaceId.value
+    pendingSpaceId.value = null
+  }
+  showSpaceSwitchConfirm.value = false
 }
 
 // 右键目标空间先切换并确认授权，再开启对应布局编辑。
@@ -173,6 +191,12 @@ async function handleLock() {
   await lockPrivacySpace()
   await loadData("default")
 }
+
+// 取消主页编辑修改并退出。
+async function handleCancelEdit() {
+  await desktopCanvas.value?.cancelChanges()
+  isEditMode.value = false
+}
 </script>
 
 <template>
@@ -194,6 +218,7 @@ async function handleLock() {
           <button type="button" class="btn-sub" @click="openCreateGroupModal">+ 新建分组</button>
           <button type="button" class="btn-sub" @click="desktopCanvas?.toggleTree()">+ 添加组件</button>
           <button type="button" class="btn-sub" @click="showBookmarkManager = true">内容归档</button>
+          <button type="button" class="btn-sub" @click="handleCancelEdit">取消更改</button>
           <button type="button" class="btn-accent" @click="isEditMode = false">完成编辑</button>
         </div>
       </div>
@@ -277,195 +302,73 @@ async function handleLock() {
       @close="showGroupPrompt = false"
       @save="handleSaveGroup"
     />
+
+    <!-- 空间切换放弃草稿确认弹窗 -->
+    <AlertModal
+      :show="showSpaceSwitchConfirm"
+      title="切换空间"
+      message="放弃未保存的布局修改并切换空间？"
+      type="warning"
+      :show-cancel="true"
+      cancel-text="取消"
+      confirm-text="确认切换"
+      @confirm="handleConfirmSpaceSwitch"
+      @close="showSpaceSwitchConfirm = false"
+    />
   </div>
 </template>
 
 <style scoped>
-.home-layout {
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-}
-
+.home-layout { min-height: 100vh; display: flex; flex-direction: column; }
 .default-password-banner {
-  background: #fffbeb;
-  border-bottom: 1px solid #fef3c7;
-  padding: 10px 24px;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: 12px;
-  font-size: 13px;
-  color: #92400e;
+  background: var(--lh-warning-bg); border-bottom: 1px solid var(--lh-warning-border);
+  padding: 10px 24px; display: flex; justify-content: center; align-items: center;
+  gap: 12px; font-size: 13px; color: var(--lh-warning-text);
 }
-
-.banner-link {
-  color: #b45309;
-  font-weight: 600;
-  text-decoration: underline;
-}
-
+.banner-link { color: var(--lh-warning); font-weight: 600; text-decoration: underline; }
 .edit-mode-bar {
-  position: sticky;
-  top: 16px;
-  z-index: 50;
-  max-width: 780px;
-  margin: 16px auto 0 auto;
-  padding: 8px 16px;
-  background: var(--lh-surface);
-  border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-full);
-  box-shadow: var(--lh-shadow-dropdown);
-  backdrop-filter: blur(var(--lh-blur));
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+  position: sticky; top: 16px; z-index: 50; max-width: 780px; margin: 16px auto 0 auto;
+  padding: 8px 16px; background: var(--lh-surface); border: 1px solid var(--lh-border);
+  border-radius: var(--lh-radius-full); box-shadow: var(--lh-shadow-dropdown);
+  backdrop-filter: blur(var(--lh-blur)); display: flex; align-items: center; justify-content: space-between;
 }
-
-.edit-status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--lh-text);
-}
-
-.edit-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: var(--lh-radius-full);
-  background: var(--lh-accent);
-  box-shadow: 0 0 8px var(--lh-accent);
-}
-
-.edit-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
+.edit-status { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 500; color: var(--lh-text); }
+.edit-dot { width: 8px; height: 8px; border-radius: var(--lh-radius-full); background: var(--lh-accent); box-shadow: 0 0 8px var(--lh-accent); }
+.edit-actions { display: flex; align-items: center; gap: 8px; }
 .btn-accent {
-  padding: 6px 14px;
-  border: none;
-  border-radius: var(--lh-radius-full);
-  background: var(--lh-accent);
-  color: var(--lh-accent-text);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  transition: opacity 0.15s ease;
+  padding: 6px 14px; border: none; border-radius: var(--lh-radius-full);
+  background: var(--lh-accent); color: var(--lh-accent-text); font-size: 12px;
+  font-weight: 500; cursor: pointer; transition: opacity 0.15s ease;
 }
-
-.btn-accent:hover {
-  opacity: 0.9;
-}
-
+.btn-accent:hover { opacity: 0.9; }
 .btn-sub {
-  padding: 6px 12px;
-  border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-full);
-  background: var(--lh-surface);
-  color: var(--lh-text);
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s ease;
+  padding: 6px 12px; border: 1px solid var(--lh-border); border-radius: var(--lh-radius-full);
+  background: var(--lh-surface); color: var(--lh-text); font-size: 12px; cursor: pointer; transition: background 0.15s ease;
 }
-
-.btn-sub:hover {
-  background: var(--lh-surface-hover);
-}
-
-.main-body {
-  flex: 1;
-  max-width: 1440px;
-  width: 100%;
-  margin: 0 auto;
-  padding: 40px 20px 80px 20px;
-  box-sizing: border-box;
-}
-
+.btn-sub:hover { background: var(--lh-surface-hover); }
+.main-body { flex: 1; max-width: 1440px; width: 100%; margin: 0 auto; padding: 40px 20px 80px 20px; box-sizing: border-box; }
 .privacy-alert-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 16px;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: var(--lh-radius-md);
-  margin-bottom: 24px;
-  color: #ef4444;
-  font-size: 13px;
+  display: flex; justify-content: space-between; align-items: center; padding: 10px 16px;
+  background: var(--lh-danger-bg); border: 1px solid var(--lh-danger-border);
+  border-radius: var(--lh-radius-md); margin-bottom: 24px; color: var(--lh-danger); font-size: 13px;
 }
-
 .btn-lock {
-  padding: 4px 10px;
-  background: #ef4444;
-  color: #ffffff;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 12px;
+  padding: 5px 12px; background: var(--lh-danger); color: var(--lh-danger-text);
+  border: none; border-radius: var(--lh-radius-sm); cursor: pointer; font-size: 12px; font-weight: 500; transition: opacity 0.15s ease;
 }
-
+.btn-lock:hover { background: var(--lh-danger-hover); }
 .privacy-lock-card {
-  max-width: 400px;
-  margin: 60px auto;
-  padding: 32px;
-  background: var(--lh-surface);
-  border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-lg);
-  box-shadow: var(--lh-shadow-card);
-  backdrop-filter: blur(var(--lh-blur));
-  text-align: center;
+  max-width: 400px; margin: 60px auto; padding: 32px; background: var(--lh-surface);
+  border: 1px solid var(--lh-border); border-radius: var(--lh-radius-lg);
+  box-shadow: var(--lh-shadow-card); backdrop-filter: blur(var(--lh-blur)); text-align: center;
 }
-
-.lock-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-top: 20px;
-}
-
-.lock-form input {
-  padding: 10px 12px;
-  border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-sm);
-  background: var(--lh-input-bg);
-  color: var(--lh-text);
-  outline: none;
-}
-
-.lock-form input:focus {
-  border-color: var(--lh-accent);
-}
-
-.error-msg {
-  color: #ef4444;
-  font-size: 13px;
-  margin: 0;
-}
-
-.setup-hint {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  margin-top: 16px;
-  color: var(--lh-text-secondary);
-  font-size: 14px;
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.2s ease, transform 0.2s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
+.lock-form { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
+.lock-form input { padding: 10px 12px; border: 1px solid var(--lh-border); border-radius: var(--lh-radius-sm); background: var(--lh-input-bg); color: var(--lh-text); outline: none; }
+.lock-form input:focus { border-color: var(--lh-accent); }
+.error-msg { color: var(--lh-danger); font-size: 13px; margin: 0; }
+.setup-hint { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 16px; color: var(--lh-text-secondary); font-size: 14px; }
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(-8px); }
 @media (max-width: 560px) {
   .edit-mode-bar { margin: 12px 12px 0; padding: 10px 12px; border-radius: 16px; display: block; }
   .edit-status { margin-bottom: 8px; white-space: nowrap; }

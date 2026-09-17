@@ -45,7 +45,7 @@ onUnmounted(() => { document.removeEventListener('pointerdown', outside); window
 </template>
 
 <style scoped>
-.context-menu { position: fixed; z-index: 1500; width: 220px; max-width: calc(100vw - 16px); padding: 6px; border: 1px solid var(--lh-border); border-radius: var(--lh-radius-md); background: color-mix(in srgb, var(--lh-surface) 90%, transparent); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-dropdown); backdrop-filter: blur(var(--lh-blur)) saturate(160%); -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%); outline: none; }
+.context-menu { position: fixed; z-index: 3000; width: 220px; max-width: calc(100vw - 16px); padding: 6px; border: 1px solid var(--lh-border); border-radius: var(--lh-radius-md); background: color-mix(in srgb, var(--lh-surface) 90%, transparent); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-dropdown); backdrop-filter: blur(var(--lh-blur)) saturate(160%); -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%); outline: none; }
 .context-menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 10px 12px; font-size: 14px; border-radius: calc(var(--lh-radius-sm) + 2px); transition: background-color .15s ease; outline: none; }
 .context-menu button:hover, .context-menu button:focus-visible { background: var(--lh-surface-hover); }
 </style>

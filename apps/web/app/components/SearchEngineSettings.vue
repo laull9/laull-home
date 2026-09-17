@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { extractSiteOrigin, type SearchEngine } from "@laull-home/shared"
+import SearchEngineDeleteModal from "./SearchEngineDeleteModal.vue"
 import SearchEngineModal from "./SearchEngineModal.vue"
 
 const { engines, fetchEngines, createEngine, updateEngine, deleteEngine } = useSearch()
@@ -147,15 +148,33 @@ async function handleSetDefault(engine: SearchEngine) {
   }
 }
 
+// 删除搜索引擎弹窗状态。
+const deletingEngines = ref<SearchEngine[]>([])
+const showDeleteModal = ref(false)
+const isDeleting = ref(false)
+
 // 删除指定搜索引擎。
-async function handleDelete(engine: SearchEngine) {
-  if (confirm("确认删除搜索引擎「" + engine.name + "」？")) {
-    try {
+function handleDelete(engine: SearchEngine) {
+  deletingEngines.value = [engine]
+  showDeleteModal.value = true
+}
+
+// 确认删除搜索引擎。
+async function handleConfirmDelete() {
+  if (deletingEngines.value.length === 0) return
+  isDeleting.value = true
+  errorMessage.value = ""
+  try {
+    for (const engine of deletingEngines.value) {
       await deleteEngine(engine.id)
-      successMessage.value = "搜索引擎已删除"
-    } catch (err: unknown) {
-      errorMessage.value = err instanceof Error ? err.message : "删除失败"
     }
+    successMessage.value = "搜索引擎已删除"
+    showDeleteModal.value = false
+    deletingEngines.value = []
+  } catch (err: unknown) {
+    errorMessage.value = err instanceof Error ? err.message : "删除失败"
+  } finally {
+    isDeleting.value = false
   }
 }
 </script>
@@ -284,6 +303,16 @@ async function handleDelete(engine: SearchEngine) {
       @close="showEditModal = false"
       @updated="handleEngineUpdated"
     />
+
+    <!-- 搜索引擎删除确认弹窗 -->
+    <SearchEngineDeleteModal
+      :show="showDeleteModal"
+      :engines="deletingEngines"
+      :total-count="engines.length"
+      :deleting="isDeleting"
+      @close="showDeleteModal = false"
+      @confirm="handleConfirmDelete"
+    />
   </section>
 </template>
 
@@ -335,11 +364,11 @@ async function handleDelete(engine: SearchEngine) {
 .btn-action:hover:not(:disabled) { background: var(--lh-surface-hover); border-color: var(--lh-accent); color: var(--lh-accent); }
 .btn-action:disabled { opacity: 0.45; cursor: not-allowed; }
 .btn-revoke {
-  padding: 4px 10px; background: color-mix(in srgb, #dc2626 12%, transparent); color: #ef4444;
-  border: 1px solid color-mix(in srgb, #dc2626 30%, transparent); border-radius: var(--lh-radius-sm);
-  cursor: pointer; font-size: 12px; transition: opacity 0.15s ease;
+  padding: 4px 10px; background: var(--lh-danger-bg); color: var(--lh-danger);
+  border: 1px solid var(--lh-danger-border); border-radius: var(--lh-radius-sm);
+  cursor: pointer; font-size: 12px; font-weight: 500; transition: opacity 0.15s ease, background-color 0.15s ease;
 }
-.btn-revoke:hover:not(:disabled) { background: color-mix(in srgb, #dc2626 22%, transparent); }
+.btn-revoke:hover:not(:disabled) { background: color-mix(in srgb, var(--lh-danger) 22%, transparent); }
 .btn-revoke:disabled { opacity: 0.35; cursor: not-allowed; }
 .engine-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .engine-item {
@@ -359,12 +388,12 @@ async function handleDelete(engine: SearchEngine) {
   padding: 1px 6px; border-radius: 4px;
 }
 .tag-default {
-  font-size: 11px; font-weight: 500; background: color-mix(in srgb, #10b981 18%, transparent);
-  color: #10b981; border: 1px solid color-mix(in srgb, #10b981 35%, transparent);
+  font-size: 11px; font-weight: 500; background: var(--lh-success-bg);
+  color: var(--lh-success); border: 1px solid var(--lh-success-border);
   padding: 1px 6px; border-radius: 4px;
 }
 .engine-template { font-size: 12px; color: var(--lh-text-muted); word-break: break-all; }
 .engine-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
-.info-text { color: #10b981; font-size: 13px; margin: 6px 0 12px; }
-.error-text { color: #ef4444; font-size: 13px; margin: 6px 0 12px; }
+.info-text { color: var(--lh-success); font-size: 13px; margin: 6px 0 12px; }
+.error-text { color: var(--lh-danger); font-size: 13px; margin: 6px 0 12px; }
 </style>

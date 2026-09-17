@@ -106,7 +106,11 @@ function getBookmarksForGroup(groupId: string): Bookmark[] {
   cursor: pointer;
 }
 .btn-group-action.text-danger {
-  color: #ef4444;
+  color: var(--lh-danger);
+}
+.btn-group-action.text-danger:hover {
+  background: var(--lh-danger-bg);
+  border-color: var(--lh-danger-border);
 }
 .bookmark-grid {
   display: grid;
@@ -201,7 +205,10 @@ function getBookmarksForGroup(groupId: string): Bookmark[] {
   padding: 0;
 }
 .btn-card-del {
-  color: #ef4444;
+  color: var(--lh-danger);
+}
+.btn-card-del:hover {
+  background: var(--lh-danger-bg);
 }
 .empty-state {
   text-align: center;

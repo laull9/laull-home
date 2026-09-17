@@ -12,13 +12,14 @@ export const themeConfigSchema = Type.Object({
   radius: Type.Number({ minimum: 0, maximum: 40 }), gap: Type.Number({ minimum: 4, maximum: 32 }),
   wallpaperDim: Type.Number({ minimum: 0, maximum: 80 }), wallpaperBlur: Type.Number({ minimum: 0, maximum: 24 }),
   light: overridesSchema, dark: overridesSchema,
+  themeColors: Type.Optional(Type.Record(Type.String({ pattern: '^[a-zA-Z0-9_-]+$' }), Type.String({ pattern: '^#[0-9a-fA-F]{6}$' }))),
 }, { additionalProperties: false })
 // 主题参数类型。
 export type ThemeConfig = Static<typeof themeConfigSchema>
 // 默认参数保持旧版主题可读。
-export const DEFAULT_THEME: ThemeConfig = { version: 1, seed: '#2563eb', customSeed: false, opacity: 95, blur: 16, radius: 16, gap: 16, wallpaperDim: 0, wallpaperBlur: 0, light: {}, dark: {} }
+export const DEFAULT_THEME: ThemeConfig = { version: 1, seed: '#2563eb', customSeed: false, opacity: 95, blur: 16, radius: 16, gap: 16, wallpaperDim: 0, wallpaperBlur: 0, light: {}, dark: {}, themeColors: {} }
 // 计算线性 sRGB 相对亮度。
-function luminance(hex: string): number {
+export function luminance(hex: string): number {
   const channels = [1, 3, 5].map(start => parseInt(hex.slice(start, start + 2), 16) / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4)
   return channels[0]! * 0.2126 + channels[1]! * 0.7152 + channels[2]! * 0.0722
 }
@@ -30,6 +31,46 @@ export function contrast(a: string, b: string): number {
 // 混合生成双模背景与色调变化。
 export function mix(a: string, b: string, amount: number): string {
   return '#' + [1, 3, 5].map(i => Math.round(parseInt(a.slice(i, i + 2), 16) * (1 - amount) + parseInt(b.slice(i, i + 2), 16) * amount).toString(16).padStart(2, '0')).join('')
+}
+// 根据明暗模式及语义角色自适应调整色值，确保可读性与无障碍对比度。
+export function adaptColorForMode(hex: string, role: 'accent' | 'secondary' | 'bg' | 'surface' | 'border', dark: boolean): string {
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) return hex
+  const lum = luminance(hex)
+  if (role === 'accent' || role === 'secondary') {
+    if (dark) {
+      let adjusted = hex
+      let iterations = 0
+      while (contrast(adjusted, '#121212') < 4.5 && iterations < 5) {
+        adjusted = mix(adjusted, '#ffffff', 0.25)
+        iterations++
+      }
+      return adjusted
+    } else {
+      let adjusted = hex
+      let iterations = 0
+      while (contrast(adjusted, '#ffffff') < 4.5 && iterations < 5) {
+        adjusted = mix(adjusted, '#000000', 0.25)
+        iterations++
+      }
+      return adjusted
+    }
+  }
+  if (role === 'bg') {
+    if (dark && lum > 0.4) return mix(hex, '#080a0f', 0.92)
+    if (!dark && lum < 0.4) return mix(hex, '#ffffff', 0.94)
+    return hex
+  }
+  if (role === 'surface') {
+    if (dark && lum > 0.45) return mix(hex, '#14171f', 0.88)
+    if (!dark && lum < 0.45) return mix(hex, '#ffffff', 0.88)
+    return hex
+  }
+  if (role === 'border') {
+    if (dark && contrast(hex, '#121212') < 1.25) return mix(hex, '#ffffff', 0.2)
+    if (!dark && contrast(hex, '#ffffff') < 1.25) return mix(hex, '#000000', 0.15)
+    return hex
+  }
+  return hex
 }
 // 按种子色生成双模变量并确保按钮文本符合 AA。
 export function seedTokens(seed: string, dark: boolean): Record<string, string> {

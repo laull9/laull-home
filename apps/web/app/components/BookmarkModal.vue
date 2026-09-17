@@ -16,6 +16,7 @@ const emit = defineEmits<{
   (e: "saved", bookmark?: Bookmark, isFolderAdd?: boolean): void
 }>()
 
+// 书签领域数据操作接口。
 const { createBookmark, updateBookmark, fetchFavicon } = useBookmarks()
 
 // 表单字段绑定。
@@ -122,121 +123,88 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <div v-if="show" class="modal-backdrop" @click.self="emit('close')">
-    <div class="modal-card">
-      <div class="modal-header">
-        <h3>{{ editingBookmark ? "编辑书签" : "快速添加书签" }}</h3>
-        <button type="button" class="btn-close" @click="emit('close')">×</button>
-      </div>
-
-      <form @submit.prevent="handleSubmit">
-        <div class="field">
-          <label>网页链接</label>
-          <div class="url-input-group">
-            <input
-              v-model="formUrl"
-              type="text"
-              placeholder="例如 https://github.com"
-              required
-              @blur="!formIconUrl && handleFetchFavicon()"
-            >
-            <button
-              type="button"
-              class="btn-fetch"
-              :disabled="fetchingIcon || !formUrl"
-              @click="handleFetchFavicon"
-            >
-              {{ fetchingIcon ? "获取中..." : "探测图标" }}
-            </button>
-          </div>
-        </div>
-
-        <div class="field">
-          <label>书签名称</label>
-          <input v-model="formTitle" type="text" placeholder="书签显示名称" required>
-        </div>
-
-        <div class="field">
-          <label>所属分组</label>
-          <select v-model="formGroupId" :disabled="!!targetGroupId">
-            <option value="">无（桌面独立图标）</option>
-            <option v-for="g in groups" :key="g.id" :value="g.id">
-              {{ g.name }}
-            </option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>图标链接（可选）</label>
-          <div class="icon-preview-row">
-            <img
-              v-if="formIconUrl"
-              :src="formIconUrl"
-              alt="预览"
-              class="icon-preview"
-              @error="formIconUrl = ''"
-            >
-            <input v-model="formIconUrl" type="text" placeholder="输入图标地址或使用上方探测">
-          </div>
-        </div>
-
-        <div v-if="currentSpaceId === 'default'" class="checkbox-field">
-          <label>
-            <input v-model="formIsPublic" type="checkbox">
-            公开此书签（未登录访客可见）
-          </label>
-        </div>
-
-        <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
-
-        <div class="modal-actions">
-          <button type="button" class="btn-cancel" @click="emit('close')">取消</button>
-          <button type="submit" class="btn-submit" :disabled="submitting">
-            {{ submitting ? "保存中..." : "保存" }}
+  <BaseModal
+    :show="show"
+    :title="editingBookmark ? '编辑书签' : '快速添加书签'"
+    max-width="480px"
+    @close="emit('close')"
+  >
+    <form id="bookmark-form" class="bookmark-form" @submit.prevent="handleSubmit">
+      <div class="field">
+        <label>网页链接</label>
+        <div class="url-input-group">
+          <input
+            v-model="formUrl"
+            type="text"
+            placeholder="例如 https://github.com"
+            required
+            @blur="!formIconUrl && handleFetchFavicon()"
+          >
+          <button
+            type="button"
+            class="btn-fetch"
+            :disabled="fetchingIcon || !formUrl"
+            @click="handleFetchFavicon"
+          >
+            {{ fetchingIcon ? "获取中..." : "探测图标" }}
           </button>
         </div>
-      </form>
-    </div>
-  </div>
+      </div>
+
+      <div class="field">
+        <label>书签名称</label>
+        <input v-model="formTitle" type="text" placeholder="书签显示名称" required>
+      </div>
+
+      <div class="field">
+        <label>所属分组</label>
+        <select v-model="formGroupId" :disabled="!!targetGroupId">
+          <option value="">无（桌面独立图标）</option>
+          <option v-for="g in groups" :key="g.id" :value="g.id">
+            {{ g.name }}
+          </option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label>图标链接（可选）</label>
+        <div class="icon-preview-row">
+          <img
+            v-if="formIconUrl"
+            :src="formIconUrl"
+            alt="预览"
+            class="icon-preview"
+            @error="formIconUrl = ''"
+          >
+          <input v-model="formIconUrl" type="text" placeholder="输入图标地址或使用上方探测">
+        </div>
+      </div>
+
+      <div v-if="currentSpaceId === 'default'" class="checkbox-field">
+        <label>
+          <input v-model="formIsPublic" type="checkbox">
+          公开此书签（未登录访客可见）
+        </label>
+      </div>
+
+      <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+    </form>
+
+    <template #footer>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" @click="emit('close')">取消</button>
+        <button type="submit" form="bookmark-form" class="btn-submit" :disabled="submitting">
+          {{ submitting ? "保存中..." : "保存" }}
+        </button>
+      </div>
+    </template>
+  </BaseModal>
 </template>
 
 <style scoped>
-.modal-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-  backdrop-filter: blur(4px);
+.bookmark-form {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.modal-card {
-  background: var(--lh-surface);
-  border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-lg);
-  box-shadow: var(--lh-shadow-card);
-  width: 90%;
-  max-width: 480px;
-  padding: 24px;
-  color: var(--lh-text);
-}
-.modal-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 20px;
-}
-.modal-header h3 {
-  margin: 0;
-  font-size: 18px;
-}
-.btn-close {
-  background: none;
-  border: none;
-  font-size: 20px;
-  color: var(--lh-text-secondary);
-  cursor: pointer;
+  flex-direction: column;
 }
 .field {
   display: flex;
@@ -304,7 +272,7 @@ async function handleSubmit() {
   cursor: pointer;
 }
 .error-text {
-  color: #ef4444;
+  color: var(--lh-danger);
   font-size: 13px;
   margin: 0 0 16px 0;
 }
@@ -312,7 +280,6 @@ async function handleSubmit() {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 24px;
 }
 .btn-cancel {
   padding: 8px 16px;
@@ -323,13 +290,21 @@ async function handleSubmit() {
   font-size: 14px;
   cursor: pointer;
 }
+.btn-cancel:hover {
+  background: var(--lh-surface-hover);
+  border-color: var(--lh-border-hover);
+}
 .btn-submit {
   padding: 8px 20px;
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--lh-radius-sm);
   background: var(--lh-accent);
   color: var(--lh-accent-text);
   font-size: 14px;
   cursor: pointer;
+}
+.btn-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 </style>

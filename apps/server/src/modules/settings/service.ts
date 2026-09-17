@@ -18,6 +18,8 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperValue: userSettings.wallpaperValue,
         wallpaperAutoRotate: userSettings.wallpaperAutoRotate,
         wallpaperRotateInterval: userSettings.wallpaperRotateInterval,
+        activeWallpaperPoolId: userSettings.activeWallpaperPoolId,
+        wallpaperFitMode: userSettings.wallpaperFitMode,
         customCss: userSettings.customCss,
         themeConfig: userSettings.themeConfig,
       }).from(userSettings).where(eq(userSettings.userId, userId)).get()
@@ -25,6 +27,8 @@ export function createSettingsService(db: AppDatabase) {
         ...row,
         wallpaperAutoRotate: Boolean(row?.wallpaperAutoRotate),
         wallpaperRotateInterval: row?.wallpaperRotateInterval ?? 60,
+        activeWallpaperPoolId: row?.activeWallpaperPoolId ?? null,
+        wallpaperFitMode: row?.wallpaperFitMode ?? 'cover',
         themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row?.themeConfig ?? '{}') },
       } as HomeSettings
     },
@@ -41,6 +45,8 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperValue: value.wallpaperValue ?? '',
         ...(value.wallpaperAutoRotate !== undefined ? { wallpaperAutoRotate: value.wallpaperAutoRotate ? 1 : 0 } : {}),
         ...(value.wallpaperRotateInterval !== undefined ? { wallpaperRotateInterval: value.wallpaperRotateInterval } : {}),
+        ...(value.activeWallpaperPoolId !== undefined ? { activeWallpaperPoolId: value.activeWallpaperPoolId } : {}),
+        ...(value.wallpaperFitMode !== undefined ? { wallpaperFitMode: value.wallpaperFitMode } : {}),
         customCss: value.customCss ?? '',
         ...(value.themeConfig ? { themeConfig: JSON.stringify(value.themeConfig) } : {}),
         revision: sql`${userSettings.revision} + 1`,
@@ -56,6 +62,8 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperValue: userSettings.wallpaperValue,
         wallpaperAutoRotate: userSettings.wallpaperAutoRotate,
         wallpaperRotateInterval: userSettings.wallpaperRotateInterval,
+        activeWallpaperPoolId: userSettings.activeWallpaperPoolId,
+        wallpaperFitMode: userSettings.wallpaperFitMode,
         customCss: userSettings.customCss,
         themeConfig: userSettings.themeConfig,
       }).all()
@@ -64,6 +72,8 @@ export function createSettingsService(db: AppDatabase) {
         ...row,
         wallpaperAutoRotate: Boolean(row.wallpaperAutoRotate),
         wallpaperRotateInterval: row.wallpaperRotateInterval ?? 60,
+        activeWallpaperPoolId: row.activeWallpaperPoolId ?? null,
+        wallpaperFitMode: row.wallpaperFitMode ?? 'cover',
         themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row.themeConfig) },
       } as HomeSettings : null
     },

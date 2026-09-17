@@ -1,4 +1,8 @@
+import { ref } from 'vue'
 import type { WidgetNode } from '@laull-home/shared'
+
+// 记录组件树当前被拖拽的组件节点。
+export const activeDragTreeItem = ref<TreeItem | null>(null)
 
 // 组件树叶子节点接口。
 export interface TreeItem {
@@ -32,9 +36,9 @@ export const STATIC_TREE_GROUPS: TreeGroup[] = [
       { id: 'folder-launchpad', type: 'folder', variant: 'launchpad', title: '启动台九宫格', desc: '前 8 项直接点击，展开沉浸视窗', w: 2, h: 2, tag: '2×2' },
       { id: 'folder-shelf', type: 'folder', variant: 'shelf', title: '紧凑横滑书架', desc: '横向滚动，全屏打开', w: 2, h: 1, tag: '2×1' },
       { id: 'folder-grid', type: 'folder', variant: 'grid', title: '经典平铺容器', desc: '网格平铺展示收纳内容', w: 2, h: 2, tag: '2×2' },
-      { id: 'bm-large', type: 'bookmark', variant: 'large', title: '质感大图标', desc: '48px 大尺寸圆角无底座图标', w: 2, h: 2, tag: '2×2', frameless: true },
-      { id: 'bm-pill', type: 'bookmark', variant: 'pill', title: '胶囊信息卡', desc: '横向展示域名与标题快捷卡', w: 2, h: 1, tag: '2×1' },
-      { id: 'bm-standard', type: 'bookmark', variant: '', title: '标准图标捷径', desc: '1×1 经典应用图标启动项', w: 1, h: 1, tag: '1×1' },
+      { id: 'bm-large', type: 'bookmark', variant: 'large', title: '质感大图标', desc: '纯净无字圆角大图标', w: 1, h: 1, tag: '1×1', frameless: true },
+      { id: 'bm-pill', type: 'bookmark', variant: 'pill', title: '胶囊信息卡', desc: '横向 2×0.5 矮版胶囊信息卡', w: 2, h: 1, tag: '2×1', frameless: true },
+      { id: 'bm-standard', type: 'bookmark', variant: '', title: '标准图标捷径', desc: '1×1 经典应用图标启动项', w: 1, h: 1, tag: '1×1', frameless: true },
       { id: 'bm-emblem', type: 'bookmark', variant: 'emblem', title: '字母徽章捷径', desc: '根据标题生成的排印徽标', w: 1, h: 1, tag: '1×1' },
     ],
   },

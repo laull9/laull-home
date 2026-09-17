@@ -125,9 +125,9 @@ function handleConfirm() {
 }
 
 .warn-box {
-  background: color-mix(in srgb, #ef4444 12%, transparent);
-  border: 1px solid color-mix(in srgb, #ef4444 32%, transparent);
-  color: #ef4444;
+  background: var(--lh-danger-bg);
+  border: 1px solid var(--lh-danger-border);
+  color: var(--lh-danger);
   border-radius: var(--lh-radius-md);
   padding: 10px 12px;
   font-size: 13px;
@@ -203,8 +203,8 @@ function handleConfirm() {
   padding: 8px 16px;
   border: 1px solid transparent;
   border-radius: var(--lh-radius-md);
-  background: #ef4444;
-  color: #ffffff;
+  background: var(--lh-danger);
+  color: var(--lh-danger-text);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -212,7 +212,7 @@ function handleConfirm() {
 }
 
 .btn-danger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--lh-danger-hover);
 }
 
 .btn-danger:disabled,

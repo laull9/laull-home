@@ -165,7 +165,7 @@ const progressPercent = computed(() => {
 }
 
 .days-num.today {
-  color: #10b981;
+  color: var(--lh-success);
 }
 
 .days-unit {

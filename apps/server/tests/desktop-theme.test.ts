@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { arrangeNodes, newWidget, scopedCss, seedTokens, contrast, DEFAULT_THEME, type Desktop } from '@laull-home/shared'
+import { arrangeNodes, findBottomRightPlacement, newWidget, scopedCss, seedTokens, contrast, DEFAULT_THEME, type Desktop } from '@laull-home/shared'
 import { createApp } from '../src/app'
 import { openDatabase, type AppDatabase } from '../src/db'
 import { createUser } from '../src/modules/auth/service'
@@ -113,12 +113,13 @@ test('CSS 每个选择器限制在组件内，危险语法和嵌套拒绝', () =
 test('主题参数保存、旧客户端保留配置、导入范围及 CSS 拒绝', async () => {
   const { request, cookie } = await fixture()
   const current = await (await request('/settings', 'GET', undefined, cookie)).json()
-  const themeConfig = { ...DEFAULT_THEME, customSeed: true, seed: '#287356', opacity: 70, wallpaperDim: 40 }
+  const themeConfig = { ...DEFAULT_THEME, customSeed: true, seed: '#287356', opacity: 70, wallpaperDim: 40, themeColors: { color1: '#123456', color2: '#654321' } }
   const result = await request('/settings', 'PUT', { ...current, themeConfig }, cookie)
   expect(result.status).toBe(200)
   const saved = await result.json()
   expect(saved.themeConfig).toEqual(themeConfig)
   expect((await request('/settings', 'PUT', { ...saved, themeConfig: { ...themeConfig, blur: 31 } }, cookie)).status).toBe(400)
+  expect((await request('/settings', 'PUT', { ...saved, themeConfig: { ...themeConfig, themeColors: { color1: 'not-hex' } } }, cookie)).status).toBe(400)
   expect((await request('/settings', 'PUT', { ...saved, customCss: '@import "evil";' }, cookie)).status).toBe(400)
   delete saved.themeConfig
   expect((await request('/settings', 'PUT', saved, cookie)).status).toBe(200)
@@ -169,4 +170,29 @@ test('支持倒数日、待办清单、多形态 variant 及 frameless 无底座
   expect(read.nodes.find(n => n.id === 'countdown-1')?.content).toBe('2026-10-01')
   expect(read.nodes.find(n => n.id === 'todo-1')?.type).toBe('todo')
 })
+
+test('添加组件排布算法：优先现有组件右下角紧邻空位，不从左上角起找', () => {
+  // 1. 无任何组件时，首选原点 (0, 0)。
+  expect(findBottomRightPlacement([], 1, 1)).toEqual({ x: 0, y: 0 })
+
+  // 2. 模拟左上方有空缺（如 (0,0) 为空，但已有组件位于 (1,0) 2x2 和 (3,0) 1x1）。
+  const nodeA = newWidget('note', 'node-a')
+  nodeA.layouts.desktop = { x: 1, y: 0, w: 2, h: 2, pinned: true }
+  const nodeB = newWidget('bookmark', 'node-b')
+  nodeB.layouts.desktop = { x: 3, y: 0, w: 1, h: 1, pinned: true }
+
+  // 添加 1x1 组件，期望放在紧邻右下角空位 (3, 1)，而不是回填到左上角 (0, 0)。
+  const place1 = findBottomRightPlacement([nodeA, nodeB], 1, 1, 'desktop')
+  expect(place1).toEqual({ x: 3, y: 1 })
+
+  // 3. 模拟 (0,0) 2x2 与 (2,0) 1x1，添加 1x1 填补 (2,1) 右下紧邻空位。
+  const nodeC = newWidget('note', 'node-c')
+  nodeC.layouts.desktop = { x: 0, y: 0, w: 2, h: 2, pinned: true }
+  const nodeD = newWidget('bookmark', 'node-d')
+  nodeD.layouts.desktop = { x: 2, y: 0, w: 1, h: 1, pinned: true }
+
+  const place2 = findBottomRightPlacement([nodeC, nodeD], 1, 1, 'desktop')
+  expect(place2).toEqual({ x: 2, y: 1 })
+})
+
 

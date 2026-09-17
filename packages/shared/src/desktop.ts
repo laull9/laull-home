@@ -96,6 +96,84 @@ export function arrangeNodes(nodes: WidgetNode[], breakpoint: Breakpoint): Map<s
   return result
 }
 
+// 为新组件计算首选放置位置，倾向于现有组件群落中空位的右下角。
+export function findBottomRightPlacement(
+  existingNodes: WidgetNode[],
+  w: number,
+  h: number,
+  breakpoint: Breakpoint = 'desktop',
+): { x: number; y: number } {
+  const columns = BREAKPOINTS[breakpoint]
+  const clampedW = Math.max(1, Math.min(columns, w))
+  const clampedH = Math.max(1, Math.min(20, h))
+  if (!existingNodes || existingNodes.length === 0) return { x: 0, y: 0 }
+
+  const positions = arrangeNodes(existingNodes, breakpoint)
+  const occupied = new Set<string>()
+  let maxBottom = 0
+
+  for (const p of positions.values()) {
+    for (let y = p.y; y < p.y + p.h; y++) {
+      for (let x = p.x; x < p.x + p.w; x++) {
+        occupied.add(`${x}:${y}`)
+      }
+    }
+    maxBottom = Math.max(maxBottom, p.y + p.h)
+  }
+
+  // 校验指定区域是否无碰撞重叠。
+  const fits = (x: number, y: number) => {
+    if (x < 0 || x + clampedW > columns || y < 0) return false
+    for (let cy = y; cy < y + clampedH; cy++) {
+      for (let cx = x; cx < x + clampedW; cx++) {
+        if (occupied.has(`${cx}:${cy}`)) return false
+      }
+    }
+    return true
+  }
+
+  // 校验目标矩形是否紧挨现有已占用网格。
+  const isAdjacent = (x: number, y: number) => {
+    for (let cy = y; cy < y + clampedH; cy++) {
+      if (x > 0 && occupied.has(`${x - 1}:${cy}`)) return true
+      if (x + clampedW < columns && occupied.has(`${x + clampedW}:${cy}`)) return true
+    }
+    for (let cx = x; cx < x + clampedW; cx++) {
+      if (y > 0 && occupied.has(`${cx}:${y - 1}`)) return true
+      if (occupied.has(`${cx}:${y + clampedH}`)) return true
+    }
+    return false
+  }
+
+  // 优先在现有组件覆盖的高度区间内，寻找最靠右、最靠下的紧邻空位。
+  let bestCandidate: { x: number; y: number; score: number } | null = null
+  for (let y = 0; y <= maxBottom - clampedH; y++) {
+    for (let x = 0; x <= columns - clampedW; x++) {
+      if (fits(x, y) && isAdjacent(x, y)) {
+        const score = y * columns + x
+        if (!bestCandidate || score > bestCandidate.score) {
+          bestCandidate = { x, y, score }
+        }
+      }
+    }
+  }
+
+  if (bestCandidate) {
+    return { x: bestCandidate.x, y: bestCandidate.y }
+  }
+
+  // 现有范围无法容纳时，在最后一行右侧或紧贴下方起行寻找第一个可用位置。
+  for (let y = Math.max(0, maxBottom - clampedH); y <= maxBottom; y++) {
+    for (let x = 0; x <= columns - clampedW; x++) {
+      if (fits(x, y)) {
+        return { x, y }
+      }
+    }
+  }
+
+  return { x: 0, y: maxBottom }
+}
+
 // 客户端导入与服务端复用同一校验。
 export function isWidget(value: unknown): value is WidgetNode { return Value.Check(widgetSchema, value) }
 

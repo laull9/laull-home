@@ -57,6 +57,10 @@ export const userSettings = sqliteTable('user_settings', {
   wallpaperAutoRotate: integer('wallpaper_auto_rotate').notNull().default(0),
   // 壁纸定时轮换间隔时间（分钟）。
   wallpaperRotateInterval: integer('wallpaper_rotate_interval').notNull().default(60),
+  // 当前使用的图片池标识。
+  activeWallpaperPoolId: text('active_wallpaper_pool_id'),
+  // 全局默认壁纸填充模式。
+  wallpaperFitMode: text('wallpaper_fit_mode').notNull().default('cover'),
   // 更新时间戳。
   updatedAt: integer('updated_at').notNull(),
 })
@@ -217,18 +221,41 @@ export const desktops = sqliteTable('desktops', {
   updatedAt: integer('updated_at').notNull(),
 })
 
+// 图片池表定义。
+export const wallpaperPools = sqliteTable('wallpaper_pools', {
+  // 图片池唯一标识。
+  id: text('id').primaryKey(),
+  // 所属用户编号。
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // 图片池名称。
+  name: text('name').notNull(),
+  // 是否为默认图片池。
+  isDefault: integer('is_default').notNull().default(0),
+  // 创建时间戳。
+  createdAt: integer('created_at').notNull(),
+  // 更新时间戳。
+  updatedAt: integer('updated_at').notNull(),
+}, table => [
+  // 按所属用户索引图片池。
+  index('idx_wallpaper_pools_user').on(table.userId),
+])
+
 // 图片池壁纸表定义。
 export const wallpapers = sqliteTable('wallpapers', {
   // 壁纸唯一标识。
   id: text('id').primaryKey(),
   // 所属用户编号。
   userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // 所属图片池标识。
+  poolId: text('pool_id').notNull().references(() => wallpaperPools.id, { onDelete: 'cascade' }),
   // 壁纸名称。
   name: text('name').notNull(),
   // 壁纸访问地址或相对静态路径。
   url: text('url').notNull(),
   // 壁纸来源：upload 本地上传或 url 外部导入。
   sourceType: text('source_type').notNull(),
+  // 独立填充模式，为空表示跟随全局配置。
+  fitMode: text('fit_mode'),
   // 创建时间戳。
   createdAt: integer('created_at').notNull(),
   // 更新时间戳。
@@ -236,5 +263,7 @@ export const wallpapers = sqliteTable('wallpapers', {
 }, table => [
   // 按所属用户索引壁纸。
   index('idx_wallpapers_user').on(table.userId),
+  // 按所属图片池索引壁纸。
+  index('idx_wallpapers_pool').on(table.poolId),
 ])
 

@@ -400,16 +400,19 @@ function handleSearch() {
   align-items: center;
   gap: 6px;
   padding: 6px 10px 6px 14px;
-  border: none;
-  background: transparent;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   cursor: pointer;
   border-radius: var(--lh-radius-full);
-  transition: background 0.15s ease;
+  transition: background-color 0.15s ease;
   flex-shrink: 0;
 }
 .engine-trigger:hover,
-.trigger-active {
-  background: var(--lh-surface-hover);
+.engine-trigger.trigger-active {
+  background: var(--lh-surface-hover) !important;
 }
 .dropdown-arrow {
   font-size: 11px;
@@ -424,14 +427,21 @@ function handleSearch() {
   flex: 1;
   height: 100%;
   padding: 0 8px;
-  border: none;
-  background: transparent;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   color: var(--lh-text);
   font-size: 15px;
-  outline: none;
+  outline: none !important;
   min-width: 0;
 }
-
+.search-input:focus {
+  border: none !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
 .search-input::placeholder {
   color: var(--lh-text-muted);
 }
@@ -449,15 +459,8 @@ function handleSearch() {
   border-radius: var(--lh-radius-full);
   transition: color 0.15s ease;
 }
-
-.btn-clear:hover {
-  color: var(--lh-text);
-}
-
-.icon-clear {
-  width: 16px;
-  height: 16px;
-}
+.btn-clear:hover { color: var(--lh-text); }
+.icon-clear { width: 16px; height: 16px; }
 
 .search-button {
   width: 40px;
@@ -474,22 +477,16 @@ function handleSearch() {
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
-
 .search-button:hover {
   background: var(--lh-accent-hover);
   transform: scale(1.04);
 }
-
-.icon-search {
-  width: 18px;
-  height: 18px;
-}
+.icon-search { width: 18px; height: 18px; }
 
 .panel-drop-enter-active,
 .panel-drop-leave-active {
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
-
 .panel-drop-enter-from,
 .panel-drop-leave-to {
   opacity: 0;

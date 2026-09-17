@@ -25,6 +25,45 @@ const filteredThemes = computed(() => {
   return THEME_PRESETS.filter(p => p.category === selectedCategory.value)
 })
 
+// 当前选中的主题预设对象。
+const currentPreset = computed(() => {
+  const themeId = model.value.themeId ?? 'modern'
+  return THEME_PRESETS.find(p => p.id === themeId) ?? THEME_PRESETS[0]!
+})
+
+// 当前正在编辑的色彩明暗模式，初始跟随当前显示。
+const colorMode = ref<'light' | 'dark'>(isDark.value ? 'dark' : 'light')
+watch(isDark, val => { colorMode.value = val ? 'dark' : 'light' })
+
+// 获取指定槽位在当前编辑明暗模式下生效的色值。
+function getSlotColor(slotId: string, lightDefault: string, darkDefault: string): string {
+  const modeKey = colorMode.value
+  return model.value.themeConfig?.themeColors?.[`${slotId}_${modeKey}`]
+    ?? model.value.themeConfig?.themeColors?.[slotId]
+    ?? (modeKey === 'dark' ? darkDefault : lightDefault)
+}
+
+// 用户手动调整主题特征色彩槽位。
+function onSlotColorInput(slotId: string, value: string) {
+  if (!model.value.themeConfig) return
+  if (!model.value.themeConfig.themeColors) {
+    model.value.themeConfig.themeColors = {}
+  }
+  const modeKey = colorMode.value
+  model.value.themeConfig.themeColors[`${slotId}_${modeKey}`] = value
+  model.value.themeConfig.themeColors[slotId] = value
+}
+
+// 恢复当前主题的所有特征色为默认值。
+function resetThemeColors() {
+  if (!model.value.themeConfig?.themeColors) return
+  const modeKey = colorMode.value
+  for (const slot of currentPreset.value.colorSlots) {
+    delete model.value.themeConfig.themeColors[`${slot.id}_${modeKey}`]
+    delete model.value.themeConfig.themeColors[slot.id]
+  }
+}
+
 // 判断当前预设主题色是否与当前配置种子色匹配。
 function isCurrentColor(seed: string): boolean {
   return (model.value.themeConfig?.seed?.toLowerCase() ?? '#2563eb') === seed.toLowerCase()
@@ -99,8 +138,65 @@ function onCustomColor(e: globalThis.Event) {
       </section>
 
       <section class="section-group">
-        <h3 class="section-title">主题色</h3>
-        <div class="colors-palette" aria-label="主题色选择">
+        <div class="section-title-row">
+          <div class="title-with-mode">
+            <h3 class="section-title">主题色彩</h3>
+            <div class="color-mode-tabs" role="tablist" aria-label="主题色彩明暗模式切换">
+              <button
+                type="button"
+                class="mode-pill"
+                :class="{ active: colorMode === 'light' }"
+                @click="colorMode = 'light'"
+              >
+                浅色
+              </button>
+              <button
+                type="button"
+                class="mode-pill"
+                :class="{ active: colorMode === 'dark' }"
+                @click="colorMode = 'dark'"
+              >
+                深色
+              </button>
+            </div>
+          </div>
+          <button
+            type="button"
+            class="btn-reset-colors"
+            @click="resetThemeColors"
+          >
+            重置默认色
+          </button>
+        </div>
+        <div class="theme-slots-grid" aria-label="主题色彩自定义">
+          <div
+            v-for="slot in currentPreset.colorSlots"
+            :key="slot.id"
+            class="slot-card"
+          >
+            <label class="slot-swatch" :title="slot.name">
+              <input
+                type="color"
+                :value="getSlotColor(slot.id, slot.defaultLight, slot.defaultDark)"
+                :aria-label="slot.name"
+                @input="onSlotColorInput(slot.id, ($event.target as HTMLInputElement).value)"
+              >
+              <span
+                class="slot-color-preview"
+                :style="{ backgroundColor: getSlotColor(slot.id, slot.defaultLight, slot.defaultDark) }"
+              />
+            </label>
+            <div class="slot-info">
+              <span class="slot-name">{{ slot.name }}</span>
+              <span class="slot-hex">{{ getSlotColor(slot.id, slot.defaultLight, slot.defaultDark) }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="currentPreset.supportsAuxiliary" class="section-group">
+        <h3 class="section-title">UI 辅助色</h3>
+        <div class="colors-palette" aria-label="UI辅助色选择">
           <button
             v-for="colorItem in COLOR_PRESETS"
             :key="colorItem.id"
@@ -115,11 +211,11 @@ function onCustomColor(e: globalThis.Event) {
             </span>
             <span class="color-label">{{ colorItem.name }}</span>
           </button>
-          <label class="color-custom" title="自定义主题色">
+          <label class="color-custom" title="自定义UI辅助色">
             <input
               type="color"
               :value="model.themeConfig?.seed ?? '#2563eb'"
-              aria-label="自定义主题色拾色器"
+              aria-label="自定义UI辅助色拾色器"
               @input="onCustomColor"
             >
             <span class="color-label">自定义</span>
@@ -205,6 +301,24 @@ function onCustomColor(e: globalThis.Event) {
 .color-custom { display: flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 9999px; border: 1px dashed var(--lh-border); cursor: pointer; background: var(--lh-surface); font-size: 13px; }
 .color-custom:hover { border-color: var(--lh-accent); }
 .color-custom input[type=color] { width: 22px; height: 22px; padding: 0; border: none; border-radius: 50%; cursor: pointer; background: none; }
+
+.section-title-row { display: flex; justify-content: space-between; align-items: center; }
+.title-with-mode { display: flex; align-items: center; gap: 10px; }
+.color-mode-tabs { display: flex; background: var(--lh-border); padding: 2px; border-radius: 9999px; gap: 2px; }
+.mode-pill { border: none; background: transparent; border-radius: 9999px; padding: 2px 8px; font-size: 11px; color: var(--lh-text-secondary); cursor: pointer; transition: all .15s ease; }
+.mode-pill:hover { color: var(--lh-text); }
+.mode-pill.active { background: var(--lh-surface); color: var(--lh-text); font-weight: 500; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08); }
+.btn-reset-colors { background: transparent; border: 1px solid var(--lh-border); border-radius: 9999px; padding: 2px 10px; font-size: 12px; color: var(--lh-text-secondary); cursor: pointer; transition: all .15s ease; }
+.btn-reset-colors:hover { border-color: var(--lh-border-hover); color: var(--lh-text); }
+
+.theme-slots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.slot-card { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: var(--lh-radius-md); border: 1px solid var(--lh-border); background: var(--lh-surface); }
+.slot-swatch { position: relative; width: 28px; height: 28px; flex-shrink: 0; cursor: pointer; }
+.slot-swatch input[type=color] { position: absolute; inset: 0; opacity: 0; width: 100%; height: 100%; cursor: pointer; }
+.slot-color-preview { display: block; width: 100%; height: 100%; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.15); }
+.slot-info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.slot-name { font-size: 13px; font-weight: 500; color: var(--lh-text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.slot-hex { font-size: 11px; font-family: monospace; color: var(--lh-text-secondary); }
 
 .customize { border-top: 1px solid var(--lh-border); padding-top: 20px; }
 summary { cursor: pointer; margin-bottom: 20px; }

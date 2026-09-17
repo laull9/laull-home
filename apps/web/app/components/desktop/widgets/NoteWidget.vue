@@ -136,19 +136,28 @@ onBeforeUnmount(() => {
 .note-editor {
   width: 100%;
   height: 100%;
-  border: none;
-  background: transparent;
+  border: none !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
   color: var(--widget-text, var(--lh-text));
   font-family: inherit;
   font-size: 13px;
   line-height: 1.6;
   resize: none;
-  outline: none;
-  padding: 0;
+  outline: none !important;
+  padding: 0 !important;
   margin: 0;
   box-sizing: border-box;
   overflow-y: auto;
   word-break: break-word;
+}
+
+.note-editor:focus {
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 .note-editor::placeholder {

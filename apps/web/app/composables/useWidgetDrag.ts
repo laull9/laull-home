@@ -62,9 +62,12 @@ export function useWidgetDrag(options: {
     if (!current.element.hasPointerCapture(event.pointerId)) current.element.setPointerCapture(event.pointerId)
     event.preventDefault()
     const target = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-widget-id]')?.dataset.widgetId
-    preview.value = target && target !== current.id && options.acceptsTarget(current.id, target)
+    const nextPreview = target && target !== current.id && options.acceptsTarget(current.id, target)
       ? arrangeNodes(options.nodes(), options.breakpoint.value).get(target)!
       : placement(current.id, event.clientX, event.clientY, current.offsetX, current.offsetY)
+    if (!preview.value || !nextPreview || preview.value.x !== nextPreview.x || preview.value.y !== nextPreview.y || preview.value.w !== nextPreview.w || preview.value.h !== nextPreview.h) {
+      preview.value = nextPreview
+    }
     if (event.clientY > window.innerHeight - 60) window.scrollBy(0, 12)
     else if (event.clientY < 60) window.scrollBy(0, -12)
   }

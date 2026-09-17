@@ -1,87 +1,131 @@
 <script setup lang="ts">
 import type { HomeSettings, WallpaperItem } from '@laull-home/shared'
 import { useWallpapers } from '../../composables/useWallpapers'
+import AlertModal from '../AlertModal.vue'
+import WallpaperBatchModal from './WallpaperBatchModal.vue'
 import WallpaperCard from './WallpaperCard.vue'
 import WallpaperEditModal from './WallpaperEditModal.vue'
+import WallpaperImportPanel from './WallpaperImportPanel.vue'
+import WallpaperPoolTabs from './WallpaperPoolTabs.vue'
 
 // 接收双向绑定的用户主页设置。
 const model = defineModel<HomeSettings>({ required: true })
 
-const { wallpapers, loading, fetchWallpapers, addWallpaper, uploadWallpaper, updateWallpaper, deleteWallpaper } = useWallpapers()
+const {
+  selectedPoolId,
+  wallpapers,
+  loading,
+  fetchPools,
+  fetchWallpapers,
+  updateWallpaper,
+  deleteWallpaper,
+  deleteWallpapersBatch,
+} = useWallpapers()
 
-// 外部 URL 导入表单。
-const importUrl = ref('')
-const importName = ref('')
-const importError = ref('')
-const isSubmittingUrl = ref(false)
+// 批量导入弹窗展示状态。
+const isBatchModalOpen = ref(false)
 
-// 本地文件上传。
-const fileInputRef = ref<HTMLInputElement | null>(null)
-const uploadError = ref('')
-const isUploading = ref(false)
+// 批量多选状态。
+const isSelecting = ref(false)
+const selectedIds = ref<Set<string>>(new Set())
+
+// 切换多选勾选。
+function toggleSelect(id: string) {
+  if (selectedIds.value.has(id)) {
+    selectedIds.value.delete(id)
+  } else {
+    selectedIds.value.add(id)
+  }
+}
+
+// 全选或取消全选。
+function toggleSelectAll() {
+  if (selectedIds.value.size === wallpapers.value.length) {
+    selectedIds.value.clear()
+  } else {
+    selectedIds.value = new Set(wallpapers.value.map(w => w.id))
+  }
+}
+
+// 退出多选模式。
+function exitSelectMode() {
+  isSelecting.value = false
+  selectedIds.value.clear()
+}
+
+// 删除确认弹窗状态。
+const confirmState = ref<{
+  show: boolean
+  title: string
+  message: string
+  action: () => Promise<void>
+}>({
+  show: false,
+  title: '删除确认',
+  message: '',
+  action: async () => {},
+})
+
+// 执行弹窗确认操作。
+async function handleExecuteConfirm() {
+  const run = confirmState.value.action
+  confirmState.value.show = false
+  await run()
+}
+
+// 批量删除选中的壁纸。
+function handleBatchDelete() {
+  const ids = Array.from(selectedIds.value)
+  if (ids.length === 0) return
+  confirmState.value = {
+    show: true,
+    title: '批量删除壁纸',
+    message: `确定删除选中的 ${ids.length} 张壁纸吗？`,
+    action: async () => {
+      operationError.value = ''
+      try {
+        const success = await deleteWallpapersBatch(ids)
+        if (success) {
+          const currentWallpaper = wallpapers.value.find(w => w.url === model.value.wallpaperValue)
+          if (!currentWallpaper) {
+            model.value.wallpaperValue = wallpapers.value[0]?.url ?? ''
+          }
+          exitSelectMode()
+        }
+      } catch (err: unknown) {
+        operationError.value = err instanceof Error ? err.message : '批量删除失败'
+      }
+    },
+  }
+}
 
 // 编辑壁纸条目弹窗。
 const editingItem = ref<WallpaperItem | null>(null)
 
-// 组件挂载时获取图片池列表。
+// 操作全局错误反馈。
+const operationError = ref('')
+
+// 批量导入成功后的回调处理。
+function handleBatchSuccess(imported: WallpaperItem[]) {
+  if (imported.length > 0 && !model.value.wallpaperValue && imported[0]) {
+    model.value.wallpaperValue = imported[0].url
+  }
+}
+
+// 单张壁纸导入成功后的回调处理。
+function handleSingleImport(item: WallpaperItem) {
+  model.value.wallpaperValue = item.url
+}
+
+// 组件挂载时获取图片池列表与壁纸数据。
 onMounted(async () => {
+  await fetchPools()
   await fetchWallpapers()
   // 如果尚未选择当前壁纸且图片池有图片，默认填充第一张。
   if (!model.value.wallpaperValue && wallpapers.value.length > 0 && wallpapers.value[0]) {
     model.value.wallpaperValue = wallpapers.value[0].url
   }
 })
-
-// 触发本地文件选择器。
-function triggerFileInput() {
-  fileInputRef.value?.click()
-}
-
-// 处理本地文件上传。
-async function handleFileChange(e: Event) {
-  const target = e.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-
-  uploadError.value = ''
-  isUploading.value = true
-  try {
-    const item = await uploadWallpaper(file)
-    if (item) {
-      model.value.wallpaperValue = item.url
-    }
-  } catch (err: unknown) {
-    uploadError.value = err instanceof Error ? err.message : '上传失败'
-  } finally {
-    isUploading.value = false
-    target.value = ''
-  }
-}
-
-// 提交外部 URL 导入。
-async function handleAddUrl() {
-  importError.value = ''
-  const url = importUrl.value.trim()
-  const name = importName.value.trim() || '外部壁纸'
-  if (!url) {
-    importError.value = '请输入图片地址'
-    return
-  }
-
-  isSubmittingUrl.value = true
-  try {
-    const item = await addWallpaper({ name, url })
-    if (item) {
-      importUrl.value = ''
-      importName.value = ''
-      model.value.wallpaperValue = item.url
-    }
-  } catch (err: unknown) {
-    importError.value = err instanceof Error ? err.message : '导入失败'
-  } finally {
-    isSubmittingUrl.value = false
-  }
-}
 
 // 设为当前壁纸。
 function selectWallpaper(url: string) {
@@ -93,11 +137,8 @@ function openEdit(item: WallpaperItem) {
   editingItem.value = item
 }
 
-// 操作全局错误反馈。
-const operationError = ref('')
-
-// 保存编辑内容。
-async function handleSaveEdit(payload: { name: string; url: string }) {
+// 保存编辑内容（包含填充模式）。
+async function handleSaveEdit(payload: { name: string; url: string; fitMode: string | null }) {
   if (!editingItem.value) return
   operationError.value = ''
   try {
@@ -112,22 +153,32 @@ async function handleSaveEdit(payload: { name: string; url: string }) {
 }
 
 // 删除壁纸。
-async function handleDelete(item: WallpaperItem) {
-  if (typeof window !== 'undefined' && !window.confirm(`确定删除壁纸「${item.name}」吗？`)) return
-  operationError.value = ''
-  try {
-    await deleteWallpaper(item.id)
-    if (model.value.wallpaperValue === item.url) {
-      model.value.wallpaperValue = wallpapers.value[0]?.url ?? ''
-    }
-  } catch (err: unknown) {
-    operationError.value = err instanceof Error ? err.message : '删除失败'
+function handleDelete(item: WallpaperItem) {
+  const displayName = item.name && item.name !== 'undefined' ? item.name : '此壁纸'
+  confirmState.value = {
+    show: true,
+    title: '删除壁纸',
+    message: `确定删除壁纸「${displayName}」吗？`,
+    action: async () => {
+      operationError.value = ''
+      try {
+        await deleteWallpaper(item.id)
+        if (model.value.wallpaperValue === item.url) {
+          model.value.wallpaperValue = wallpapers.value[0]?.url ?? ''
+        }
+      } catch (err: unknown) {
+        operationError.value = err instanceof Error ? err.message : '删除失败'
+      }
+    },
   }
 }
 </script>
 
 <template>
   <div class="wallpaper-pool-manager">
+    <!-- 图片池管理选项卡与全局填充模式 -->
+    <WallpaperPoolTabs v-model="model" />
+
     <!-- 定时轮换与切换规则设置 -->
     <div class="rotate-settings card-inner">
       <div class="section-title">定时轮换</div>
@@ -152,70 +203,46 @@ async function handleDelete(item: WallpaperItem) {
       </div>
     </div>
 
-    <!-- 导入操作区：本地上传与 URL 导入 -->
-    <div class="import-panel card-inner">
-      <div class="section-title">添加壁纸</div>
-      <div class="import-actions">
-        <!-- 本地图片上传 -->
-        <input
-          ref="fileInputRef"
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif,image/avif,image/svg+xml"
-          style="display: none;"
-          @change="handleFileChange"
-        >
-        <button
-          type="button"
-          class="btn-upload"
-          :disabled="isUploading"
-          @click="triggerFileInput"
-        >
-          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-            <polyline points="17 8 12 3 7 8" />
-            <line x1="12" y1="3" x2="12" y2="15" />
-          </svg>
-          <span>{{ isUploading ? '正在上传...' : '本地图片上传' }}</span>
-        </button>
+    <!-- 导入操作区：本地上传与外部链接 -->
+    <WallpaperImportPanel
+      @imported="handleSingleImport"
+      @open-batch="isBatchModalOpen = true"
+    />
+    <p v-if="operationError" class="error-text">{{ operationError }}</p>
 
-        <!-- 外部 URL 导入 -->
-        <form class="url-form" @submit.prevent="handleAddUrl">
-          <input
-            v-model="importName"
-            type="text"
-            placeholder="名称 (可选)"
-            class="input-name"
-          >
-          <input
-            v-model="importUrl"
-            type="url"
-            placeholder="外部图片地址 (https://...)"
-            class="input-url"
-            required
-          >
-          <button
-            type="submit"
-            class="btn-import"
-            :disabled="isSubmittingUrl"
-          >
-            {{ isSubmittingUrl ? '导入中' : '导入链接' }}
-          </button>
-        </form>
-      </div>
-      <p v-if="uploadError" class="error-text">{{ uploadError }}</p>
-      <p v-if="importError" class="error-text">{{ importError }}</p>
-      <p v-if="operationError" class="error-text">{{ operationError }}</p>
-    </div>
-
-    <!-- 图片池展示网格 -->
+    <!-- 图片展示网格与批量操作 -->
     <div class="pool-grid-section">
       <div class="section-header">
-        <div class="section-title">图片池列表 ({{ wallpapers.length }})</div>
-        <span v-if="loading" class="loading-hint">加载中...</span>
+        <div class="header-left">
+          <div class="section-title">壁纸列表 ({{ wallpapers.length }})</div>
+          <span v-if="loading" class="loading-hint">加载中...</span>
+        </div>
+
+        <div v-if="wallpapers.length > 0" class="batch-controls">
+          <template v-if="isSelecting">
+            <button type="button" class="btn-batch-action" @click="toggleSelectAll">
+              {{ selectedIds.size === wallpapers.length ? '取消全选' : '全选全部' }}
+            </button>
+            <button
+              type="button"
+              class="btn-batch-action btn-danger"
+              :disabled="selectedIds.size === 0"
+              @click="handleBatchDelete"
+            >
+              批量删除 ({{ selectedIds.size }})
+            </button>
+            <button type="button" class="btn-batch-action" @click="exitSelectMode">
+              完成
+            </button>
+          </template>
+          <button v-else type="button" class="btn-batch-action" @click="isSelecting = true">
+            批量管理
+          </button>
+        </div>
       </div>
 
       <div v-if="wallpapers.length === 0 && !loading" class="empty-state">
-        图片池暂无图片，请通过本地上传或外部链接添加
+        该图片池暂无图片，请通过本地上传或外部链接添加
       </div>
 
       <div v-else class="wallpaper-grid">
@@ -224,7 +251,10 @@ async function handleDelete(item: WallpaperItem) {
           :key="item.id"
           :item="item"
           :is-active="model.wallpaperValue === item.url"
+          :is-selecting="isSelecting"
+          :is-selected="selectedIds.has(item.id)"
           @select="selectWallpaper"
+          @toggle-select="toggleSelect"
           @edit="openEdit"
           @delete="handleDelete"
         />
@@ -236,6 +266,27 @@ async function handleDelete(item: WallpaperItem) {
       :item="editingItem"
       @close="editingItem = null"
       @save="handleSaveEdit"
+    />
+
+    <!-- 批量导入壁纸弹窗 -->
+    <WallpaperBatchModal
+      :show="isBatchModalOpen"
+      :pool-id="selectedPoolId"
+      @close="isBatchModalOpen = false"
+      @success="handleBatchSuccess"
+    />
+
+    <!-- 操作确认弹窗 -->
+    <AlertModal
+      :show="confirmState.show"
+      :title="confirmState.title"
+      :message="confirmState.message"
+      type="warning"
+      :show-cancel="true"
+      cancel-text="取消"
+      confirm-text="确认删除"
+      @confirm="handleExecuteConfirm"
+      @close="confirmState.show = false"
     />
   </div>
 </template>
@@ -258,6 +309,10 @@ async function handleDelete(item: WallpaperItem) {
   font-size: 13px;
   font-weight: 600;
   color: var(--lh-text);
+  margin-bottom: 0;
+}
+
+.rotate-settings .section-title {
   margin-bottom: 10px;
 }
 
@@ -300,60 +355,6 @@ async function handleDelete(item: WallpaperItem) {
   font-size: 13px;
 }
 
-.import-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-}
-
-.btn-upload {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  background: var(--lh-surface-hover);
-  border: 1px dashed var(--lh-border-hover);
-  border-radius: var(--lh-radius-sm);
-  color: var(--lh-text);
-  font-size: 13px;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.btn-upload:hover {
-  border-color: var(--lh-accent);
-  color: var(--lh-accent);
-}
-
-.url-form {
-  display: flex;
-  flex: 1;
-  min-width: 260px;
-  gap: 8px;
-}
-
-.input-name {
-  width: 100px;
-  flex-shrink: 0;
-}
-
-.input-url {
-  flex: 1;
-  min-width: 0;
-}
-
-.btn-import {
-  padding: 7px 14px;
-  background: var(--lh-accent);
-  color: var(--lh-accent-text);
-  border: none;
-  border-radius: var(--lh-radius-sm);
-  font-size: 13px;
-  white-space: nowrap;
-}
-
 .pool-grid-section {
   display: flex;
   flex-direction: column;
@@ -364,6 +365,52 @@ async function handleDelete(item: WallpaperItem) {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.batch-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.btn-batch-action {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: var(--lh-radius-sm);
+  background: var(--lh-surface-hover);
+  border: 1px solid var(--lh-border);
+  color: var(--lh-text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-batch-action:hover:not(:disabled) {
+  border-color: var(--lh-accent);
+  color: var(--lh-accent);
+}
+
+.btn-batch-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn-batch-action.btn-danger {
+  color: var(--lh-danger);
+  border-color: var(--lh-danger-border);
+  background: var(--lh-danger-bg);
+}
+
+.btn-batch-action.btn-danger:hover:not(:disabled) {
+  background: var(--lh-danger);
+  color: var(--lh-danger-text);
 }
 
 .loading-hint {

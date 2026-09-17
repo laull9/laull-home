@@ -7,6 +7,8 @@ definePageMeta({
 const router = useRouter()
 const route = useRoute()
 const { user, refresh, login } = useAuth()
+const { $api } = useNuxtApp()
+const { applyTheme, setupSystemThemeListener } = useTheme()
 
 // 用户名输入响应式变量。
 const username = ref('')
@@ -17,8 +19,21 @@ const loading = ref(false)
 // 错误提示文本。
 const errorMessage = ref('')
 
-// 已登录用户直接跳转目标页。
+// 系统明暗偏好监听在卸载时释放。
+let stopTheme: (() => void) | undefined
+onUnmounted(() => stopTheme?.())
+
+// 已登录用户直接跳转目标页，并预先恢复主题外观。
 onMounted(async () => {
+  stopTheme = setupSystemThemeListener()
+  try {
+    const res = await $api.settings.get()
+    if (res.data) {
+      applyTheme(res.data)
+    }
+  } catch {
+    // 访客状态保持默认系统主题。
+  }
   if (!user.value) {
     try {
       await refresh()
@@ -96,68 +111,97 @@ async function handleSubmit() {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: #f3f4f6;
-  font-family: system-ui, -apple-system, sans-serif;
+  background: var(--lh-bg);
+  font-family: var(--lh-font-family);
+  color: var(--lh-text);
+  padding: 16px;
+  box-sizing: border-box;
 }
+
 .login-card {
   width: 100%;
   max-width: 380px;
-  padding: 32px;
-  background: #ffffff;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  padding: 32px 28px;
+  background: color-mix(in srgb, var(--lh-surface) 94%, transparent);
+  border: 1px solid var(--lh-border);
+  border-radius: var(--lh-radius-lg);
+  box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-card);
+  backdrop-filter: blur(var(--lh-blur)) saturate(160%);
+  -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%);
+  color: var(--lh-text);
 }
+
 .login-title {
-  font-size: 24px;
-  font-weight: 600;
-  margin-bottom: 24px;
+  font-size: 22px;
+  font-weight: 700;
+  margin: 0 0 24px 0;
   text-align: center;
-  color: #111827;
+  color: var(--lh-text);
 }
+
 .login-form {
   display: flex;
   flex-direction: column;
   gap: 16px;
 }
+
 .field {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
+
 .field label {
-  font-size: 14px;
-  color: #374151;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--lh-text-secondary);
 }
+
 .field input {
   padding: 10px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  border: 1px solid var(--lh-border);
+  border-radius: var(--lh-radius-sm);
+  background: var(--lh-input-bg);
+  color: var(--lh-text);
   font-size: 14px;
   outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
+
 .field input:focus {
-  border-color: #2563eb;
+  border-color: var(--lh-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--lh-accent) 20%, transparent);
 }
+
 .error-text {
-  color: #dc2626;
-  font-size: 14px;
+  color: var(--lh-danger);
+  font-size: 13px;
   margin: 0;
 }
+
 .submit-button {
-  padding: 10px;
-  background: #2563eb;
-  color: #ffffff;
+  padding: 10px 16px;
+  background: var(--lh-accent);
+  color: var(--lh-accent-text);
   border: none;
-  border-radius: 6px;
-  font-size: 15px;
+  border-radius: var(--lh-radius-sm);
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  margin-top: 8px;
+  margin-top: 6px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--lh-accent) 30%, transparent);
+  transition: opacity 0.15s ease, transform 0.15s ease, background 0.15s ease;
 }
+
 .submit-button:hover:not(:disabled) {
-  background: #1d4ed8;
+  background: var(--lh-accent-hover);
+  transform: translateY(-1px);
 }
+
 .submit-button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
 }
 </style>

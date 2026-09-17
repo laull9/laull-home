@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useSettingsDraft } from '../composables/useSettingsDraft'
 import { type SessionItem } from '@laull-home/shared'
+import AlertModal from '../components/AlertModal.vue'
 
 // 启用身份鉴权守卫。
 definePageMeta({
@@ -17,8 +18,23 @@ const pages = [{ id: 'appearance', name: '外观' }, { id: 'wallpaper', name: '�
 const page = computed(() => pages.find(item => item.id === route.query.page)?.id ?? 'appearance')
 const { draft, ready, state, message, chooseTheme, chooseColor, retry, load } = useSettingsDraft()
 
+// 重新读取确认弹窗显隐状态。
+const showReloadConfirm = ref(false)
+
 // 用户主动重读时确认放弃尚未保存的草稿。
-function reloadSettings() { if (!ready.value || confirm('放弃当前修改并重新读取？')) void load() }
+function reloadSettings() {
+  if (!ready.value) {
+    void load()
+    return
+  }
+  showReloadConfirm.value = true
+}
+
+// 确认放弃修改并重新读取。
+function handleConfirmReload() {
+  showReloadConfirm.value = false
+  void load()
+}
 
 // 用户名修改字段。
 const newUsername = ref('')
@@ -259,6 +275,19 @@ async function handleRevokeOthers() {
       </section>
     </main>
     </div>
+
+    <!-- 重新读取确认弹窗 -->
+    <AlertModal
+      :show="showReloadConfirm"
+      title="重新读取设置"
+      message="放弃当前未保存的修改并重新读取设置？"
+      type="warning"
+      :show-cancel="true"
+      cancel-text="取消"
+      confirm-text="确认重读"
+      @confirm="handleConfirmReload"
+      @close="showReloadConfirm = false"
+    />
   </div>
 </template>
 
@@ -350,12 +379,17 @@ async function handleRevokeOthers() {
 }
 .btn-revoke {
   padding: 4px 10px;
-  background: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
-  border: 1px solid rgba(239, 68, 68, 0.2);
-  border-radius: 4px;
+  background: var(--lh-danger-bg);
+  color: var(--lh-danger);
+  border: 1px solid var(--lh-danger-border);
+  border-radius: var(--lh-radius-sm);
   cursor: pointer;
   font-size: 12px;
+  font-weight: 500;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+.btn-revoke:hover {
+  background: color-mix(in srgb, var(--lh-danger) 22%, transparent);
 }
 .session-list {
   list-style: none;
@@ -381,15 +415,16 @@ async function handleRevokeOthers() {
   padding: 2px 6px;
   border-radius: 4px;
 }
-.info-text { color: #059669; font-size: 13px; margin: 6px 0; }
-.error-text { color: #ef4444; font-size: 13px; margin: 6px 0; }
+.info-text { color: var(--lh-success); font-size: 13px; margin: 6px 0; }
+.error-text { color: var(--lh-danger); font-size: 13px; margin: 6px 0; }
 .warning-box {
-  background: rgba(245, 158, 11, 0.1);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  color: #d97706;
-  padding: 10px 12px;
+  background: var(--lh-warning-bg);
+  border: 1px solid var(--lh-warning-border);
+  color: var(--lh-warning-text);
+  padding: 10px 14px;
   border-radius: var(--lh-radius-sm);
   font-size: 13px;
+  line-height: 1.4;
   margin-bottom: 16px;
 }
 </style>

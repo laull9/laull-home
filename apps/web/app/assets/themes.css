@@ -13,6 +13,32 @@
   -webkit-backdrop-filter: none !important;
 }
 
+/* 搜索栏与便签内嵌无框交互元素重置，杜绝主题边框、背景与滤镜穿透 */
+:root .search-form .engine-trigger,
+:root .search-form .search-input,
+:root .search-form .btn-clear,
+:root .note-root .note-editor,
+:root[data-theme] .search-form .engine-trigger,
+:root[data-theme] .search-form .search-input,
+:root[data-theme] .search-form .btn-clear,
+:root[data-theme] .note-root .note-editor {
+  border: 0 !important;
+  border-width: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  outline: none !important;
+}
+
+:root .search-form .engine-trigger:hover,
+:root .search-form .engine-trigger.trigger-active,
+:root[data-theme] .search-form .engine-trigger:hover,
+:root[data-theme] .search-form .engine-trigger.trigger-active {
+  background: var(--lh-surface-hover) !important;
+}
+
+
 /* 像素主题：硬直角、等宽代码字体、硬边偏移阴影、禁用模糊 */
 :root[data-theme="pixel"] {
   font-family: var(--lh-font-family);
@@ -38,12 +64,16 @@
   -webkit-backdrop-filter: none !important;
   box-shadow: 3px 3px 0 var(--lh-border) !important;
 }
-:root[data-theme="pixel"] button,
-:root[data-theme="pixel"] input,
+:root[data-theme="pixel"] button:not(.engine-trigger):not(.btn-clear),
+:root[data-theme="pixel"] input:not(.search-input),
 :root[data-theme="pixel"] select,
-:root[data-theme="pixel"] textarea {
+:root[data-theme="pixel"] textarea:not(.note-editor) {
   border-width: 2px !important;
   border-radius: 2px !important;
+}
+:root[data-theme="pixel"] .todo-checkbox {
+  border-width: 2px !important;
+  border-radius: 0 !important;
 }
 
 /* 新丑野蛮主题：粗黑实体边框、零圆角、实体投影与高饱和冲击力 */
@@ -68,12 +98,27 @@
   -webkit-backdrop-filter: none !important;
   box-shadow: 4px 4px 0 var(--lh-border) !important;
 }
-:root[data-theme="brutalist"] button,
-:root[data-theme="brutalist"] input,
+:root[data-theme="brutalist"] button:not(.engine-trigger):not(.btn-clear),
+:root[data-theme="brutalist"] input:not(.search-input),
 :root[data-theme="brutalist"] select,
-:root[data-theme="brutalist"] textarea {
+:root[data-theme="brutalist"] textarea:not(.note-editor) {
   border: 2px solid var(--lh-border) !important;
   border-radius: 0 !important;
+}
+:root[data-theme="brutalist"] button:not(.btn-close):not(.engine-trigger):not(.btn-clear):hover {
+  transform: translate(-1px, -1px);
+  box-shadow: 2px 2px 0 var(--lh-border) !important;
+}
+:root[data-theme="brutalist"] button:not(.btn-close):not(.engine-trigger):not(.btn-clear):active {
+  transform: translate(1px, 1px);
+  box-shadow: 0 0 0 var(--lh-border) !important;
+}
+:root[data-theme="brutalist"] input:not(.search-input):focus,
+:root[data-theme="brutalist"] select:focus,
+:root[data-theme="brutalist"] textarea:not(.note-editor):focus {
+  border-color: var(--lh-border) !important;
+  box-shadow: 3px 3px 0 var(--lh-accent) !important;
+  outline: none !important;
 }
 :root[data-theme="brutalist"] .todo-checkbox {
   border: 2px solid var(--lh-border) !important;
@@ -97,6 +142,12 @@
   border-radius: 6px !important;
   box-shadow: 0 0 12px color-mix(in srgb, var(--lh-accent) 25%, transparent) !important;
 }
+:root[data-theme="cyberpunk"] input:not(.search-input):focus,
+:root[data-theme="cyberpunk"] select:focus,
+:root[data-theme="cyberpunk"] textarea:not(.note-editor):focus {
+  border-color: var(--lh-accent) !important;
+  box-shadow: 0 0 10px color-mix(in srgb, var(--lh-accent) 50%, transparent) !important;
+}
 
 /* 黑客帝国主题：终端纯黑底色与磷绿代码流微光 */
 :root[data-theme="matrix"] {
@@ -117,6 +168,12 @@
   border: 1px solid var(--lh-border) !important;
   border-radius: 4px !important;
   box-shadow: 0 0 10px color-mix(in srgb, var(--lh-accent) 20%, transparent) !important;
+}
+:root[data-theme="matrix"] input:not(.search-input):focus,
+:root[data-theme="matrix"] select:focus,
+:root[data-theme="matrix"] textarea:not(.note-editor):focus {
+  border-color: var(--lh-accent) !important;
+  box-shadow: 0 0 8px color-mix(in srgb, var(--lh-accent) 45%, transparent) !important;
 }
 
 /* 通透玻璃主题：超高折射毛玻璃与水晶边缘反光 */

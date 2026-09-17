@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { Bookmark, BookmarkGroup, WidgetNode } from '@laull-home/shared'
-import { STATIC_TREE_GROUPS, type TreeItem } from './treeCatalog'
+import { STATIC_TREE_GROUPS, activeDragTreeItem, type TreeItem } from './treeCatalog'
 import TreeItemPreview from './TreeItemPreview.vue'
 
 // 实时组件树接收模板列表、分组书签上下文与显隐状态。
@@ -93,11 +93,17 @@ const isSearching = computed(() => searchQuery.value.trim().length > 0)
 // 拖拽起始装配数据。
 function onDragStart(event: DragEvent, item: TreeItem) {
   if (!event.dataTransfer) return
+  activeDragTreeItem.value = item
   const framelessFlag = item.frameless ? ':frameless' : ''
   const refId = item.referenceId ? `:${item.referenceId}` : ''
   const payload = `new:${item.type}:${item.variant || ''}:${item.w}:${item.h}${framelessFlag}${refId}`
   event.dataTransfer.setData('text/plain', payload)
   event.dataTransfer.effectAllowed = 'copy'
+}
+
+// 拖拽结束重置当前节点。
+function onDragEnd() {
+  activeDragTreeItem.value = null
 }
 
 // 点击直接加入桌面。
@@ -178,6 +184,7 @@ function submitImport() {
             class="tree-card"
             draggable="true"
             @dragstart="onDragStart($event, item)"
+            @dragend="onDragEnd"
             @click="onItemClick(item)"
           >
             <!-- 实时微缩预览 -->
@@ -331,7 +338,8 @@ function submitImport() {
 
 /* 自定义模板与导入 */
 .template-card { flex-direction: row; align-items: center; justify-content: space-between; }
-.del-template-btn { background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px; font-size: 12px; }
+.del-template-btn { background: none; border: none; color: var(--lh-danger); cursor: pointer; padding: 4px; font-size: 12px; }
+.del-template-btn:hover { color: var(--lh-danger-hover); }
 .import-section { margin-top: 8px; padding-top: 12px; border-top: 1px dashed var(--lh-border); display: flex; flex-direction: column; gap: 8px; }
 .import-title { font-size: 11px; font-weight: 600; color: var(--lh-text-secondary); }
 .import-row { display: flex; gap: 6px; }

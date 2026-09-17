@@ -195,5 +195,29 @@ export const migrations = [{
     UPDATE search_engines SET suggestion_url = 'https://duckduckgo.com/ac/?q=%s&type=list' WHERE id = 'duckduckgo';
     UPDATE search_engines SET suggestion_url = 'https://suggestqueries.google.com/complete/search?client=youtube&ds=yt&q=%s' WHERE id = 'youtube';
   `,
+}, {
+  // 迁移版本 9：图片池多池管理、壁纸池归属、批量删除支持与单图独立填充模式。
+  version: 9,
+  // 建立图片池表并为壁纸表与设置表增加池归属与填充模式列。
+  sql: `
+    CREATE TABLE wallpaper_pools (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0 CHECK (is_default IN (0, 1)),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX idx_wallpaper_pools_user ON wallpaper_pools(user_id);
+    INSERT OR IGNORE INTO wallpaper_pools (id, user_id, name, is_default, created_at, updated_at)
+      SELECT 'default-pool-' || id, id, '默认图片池', 1, created_at, created_at FROM users;
+    ALTER TABLE wallpapers ADD COLUMN pool_id TEXT REFERENCES wallpaper_pools(id) ON DELETE CASCADE;
+    ALTER TABLE wallpapers ADD COLUMN fit_mode TEXT;
+    UPDATE wallpapers SET pool_id = 'default-pool-' || user_id WHERE pool_id IS NULL;
+    CREATE INDEX idx_wallpapers_pool ON wallpapers(pool_id);
+    ALTER TABLE user_settings ADD COLUMN active_wallpaper_pool_id TEXT;
+    ALTER TABLE user_settings ADD COLUMN wallpaper_fit_mode TEXT NOT NULL DEFAULT 'cover';
+    UPDATE user_settings SET active_wallpaper_pool_id = 'default-pool-' || user_id WHERE active_wallpaper_pool_id IS NULL;
+  `,
 }]
 

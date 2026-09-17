@@ -1,5 +1,47 @@
-import { DEFAULT_THEME, scopedCss, type HomeSettings } from '@laull-home/shared'
+import { DEFAULT_THEME, scopedCss, type HomeSettings, type WallpaperItem } from '@laull-home/shared'
 import { COLOR_PRESETS, normalizeThemeId, resolveThemeTokens, THEME_PRESETS } from '../utils/themePresets'
+
+// 根据填充模式解析对应的 CSS 背景图样式对象。
+function resolveFitModeStyles(mode?: string | null) {
+  switch (mode) {
+    case 'contain':
+      return {
+        backgroundSize: 'contain',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed',
+      }
+    case 'fill':
+      return {
+        backgroundSize: '100% 100%',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed',
+      }
+    case 'center':
+      return {
+        backgroundSize: 'auto',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed',
+      }
+    case 'tile':
+      return {
+        backgroundSize: 'auto',
+        backgroundPosition: 'top left',
+        backgroundRepeat: 'repeat',
+        backgroundAttachment: 'fixed',
+      }
+    case 'cover':
+    default:
+      return {
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        backgroundRepeat: 'no-repeat',
+        backgroundAttachment: 'fixed',
+      }
+  }
+}
 
 // 客户端主题、系统明暗偏好及自定义 CSS 覆盖管理。
 export function useTheme() {
@@ -30,11 +72,12 @@ export function useTheme() {
       return { backgroundImage: s.wallpaperValue }
     }
     if ((s.wallpaperType === "url" || s.wallpaperType === "pool") && s.wallpaperValue) {
+      const cachedWallpapers = useState<WallpaperItem[]>('wallpapers:list').value
+      const matched = cachedWallpapers?.find(w => w.url === s.wallpaperValue)
+      const effectiveMode = matched?.fitMode || s.wallpaperFitMode || 'cover'
       return {
         backgroundImage: "url(" + s.wallpaperValue + ")",
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-        backgroundAttachment: "fixed",
+        ...resolveFitModeStyles(effectiveMode),
       }
     }
     return {}

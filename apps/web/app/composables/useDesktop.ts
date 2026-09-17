@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { newWidget, type Desktop, type WidgetNode } from '@laull-home/shared'
+import { findBottomRightPlacement, newWidget, type Desktop, type WidgetNode, type Breakpoint } from '@laull-home/shared'
 
 // 画布草稿仅保存在内存中，切换空间清除，保存通过服务端版本锁。
 export function useDesktop() {
@@ -90,7 +90,7 @@ export function useDesktop() {
     template?: WidgetNode,
     variant?: string,
     size?: { w: number; h: number },
-    options?: { frameless?: boolean; referenceId?: string; title?: string },
+    options?: { frameless?: boolean; referenceId?: string; title?: string; breakpoint?: Breakpoint },
   ) {
     if (!data.value || saving.value) return
     if (data.value.nodes.length >= 120) { error.value = '最多保存 120 个组件'; return }
@@ -116,7 +116,26 @@ export function useDesktop() {
         { id: crypto.randomUUID(), text: '添加常用网站与分组', done: false },
       ])
     }
-    for (const p of Object.values(node.layouts)) p.pinned = false
+    const bp = options?.breakpoint ?? 'desktop'
+    const targetW = size?.w ?? node.layouts.desktop.w
+    const targetH = size?.h ?? node.layouts.desktop.h
+    const placement = findBottomRightPlacement(data.value.nodes, targetW, targetH, bp)
+    node.layouts.desktop = {
+      x: placement.x,
+      y: placement.y,
+      w: targetW,
+      h: targetH,
+      pinned: true,
+    }
+    if (bp !== 'desktop') {
+      node.layouts[bp] = {
+        x: placement.x,
+        y: placement.y,
+        w: targetW,
+        h: targetH,
+        pinned: true,
+      }
+    }
     data.value.nodes.push(node)
     dirty.value = true
   }

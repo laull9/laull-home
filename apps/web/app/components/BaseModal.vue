@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick } from 'vue'
+import { nextTick, onMounted, onUnmounted } from 'vue'
 // 通用弹窗组件属性声明。
 const props = withDefaults(
   defineProps<{
@@ -27,14 +27,32 @@ const emit = defineEmits<{
   (e: "close"): void
 }>()
 
-// 原生对话框负责焦点约束与焦点恢复。
+// 对话框节点引用。
 const dialogRef = ref<HTMLDialogElement | null>(null)
-// DOM 更新后同步原生对话框状态。
+// DOM 更新后同步对话框展开状态。
 watch(() => props.show, async (show) => {
   await nextTick()
-  if (show && dialogRef.value && !dialogRef.value.open) dialogRef.value.showModal()
+  if (show && dialogRef.value && !dialogRef.value.open) dialogRef.value.show()
   if (!show && dialogRef.value?.open) dialogRef.value.close()
 }, { immediate: true })
+
+// 监听键盘 ESC 快速退出，上层已处理则忽略。
+function handleKeydown(event: KeyboardEvent) {
+  if (event.defaultPrevented) return
+  if (props.show && event.key === 'Escape') {
+    event.preventDefault()
+    emit('close')
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeydown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeydown)
+})
+
 // 按配置处理外部点击。
 function handleBackdropClick(event: MouseEvent) {
   if (props.closeOnClickOutside && event.target === dialogRef.value) emit('close')

@@ -28,54 +28,50 @@ function handleSave() {
 </script>
 
 <template>
-  <div v-if="props.show" class="prompt-backdrop" @click.self="emit('close')">
-    <div class="prompt-card">
-      <h3>{{ props.title }}</h3>
+  <BaseModal
+    :show="props.show"
+    :title="props.title"
+    max-width="380px"
+    @close="emit('close')"
+  >
+    <div class="prompt-body">
       <input
         :value="props.modelValue"
         type="text"
         placeholder="输入分组名称"
+        class="prompt-input"
         @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
         @keyup.enter="handleSave"
       >
+    </div>
+
+    <template #footer>
       <div class="prompt-actions">
         <button type="button" class="btn-cancel" @click="emit('close')">取消</button>
         <button type="button" class="btn-accent" @click="handleSave">保存</button>
       </div>
-    </div>
-  </div>
+    </template>
+  </BaseModal>
 </template>
 
 <style scoped>
-.prompt-backdrop {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
+.prompt-body {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
+  flex-direction: column;
 }
-.prompt-card {
-  background: var(--lh-surface);
-  border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-md);
-  padding: 24px;
-  width: 90%;
-  max-width: 360px;
-}
-.prompt-card h3 {
-  margin: 0 0 16px 0;
-}
-.prompt-card input {
+.prompt-input {
   width: 100%;
-  padding: 8px 12px;
+  padding: 10px 12px;
   border: 1px solid var(--lh-border);
   border-radius: var(--lh-radius-sm);
   background: var(--lh-bg);
   color: var(--lh-text);
   box-sizing: border-box;
-  margin-bottom: 16px;
+  font-size: 14px;
+}
+.prompt-input:focus {
+  border-color: var(--lh-accent);
+  outline: none;
 }
 .prompt-actions {
   display: flex;
@@ -90,14 +86,20 @@ function handleSave() {
   color: var(--lh-text);
   font-size: 13px;
   cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.btn-cancel:hover {
+  background: var(--lh-surface-hover);
+  border-color: var(--lh-border-hover);
 }
 .btn-accent {
   padding: 6px 14px;
-  border: none;
+  border: 1px solid transparent;
   border-radius: var(--lh-radius-sm);
   background: var(--lh-accent);
   color: var(--lh-accent-text);
   font-size: 13px;
   cursor: pointer;
+  transition: opacity 0.15s ease;
 }
 </style>

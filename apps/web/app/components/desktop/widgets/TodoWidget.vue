@@ -177,7 +177,7 @@ const stats = computed(() => {
 
 .todo-mini-fill {
   height: 100%;
-  background: #10b981;
+  background: var(--lh-success);
   transition: width 0.25s ease;
 }
 
@@ -219,8 +219,8 @@ const stats = computed(() => {
 }
 
 .todo-checkbox.checked {
-  background: #10b981;
-  border-color: #10b981;
+  background: var(--lh-success);
+  border-color: var(--lh-success);
   color: #ffffff;
 }
 
@@ -261,7 +261,7 @@ const stats = computed(() => {
 }
 
 .todo-del-btn:hover {
-  color: #ef4444;
+  color: var(--lh-danger);
 }
 
 .empty-todo {

@@ -139,3 +139,168 @@ test('主题样式规范：大边框主题必须严格排除无底座组件与�
   }
 })
 
+test('主题色彩与辅助色解耦：支持所有主题槽位自定义、无辅助色主题隐藏保护与对比度', () => {
+  // 1. 验证二十套主题槽位数量不低于 2，且正确声明是否支持外部 UI 辅助色。
+  const unsupportedAuxiliary = ['cyberpunk', 'matrix', 'brutalist', 'parchment', 'solarized']
+  for (const preset of THEME_PRESETS) {
+    expect(preset.colorSlots.length).toBeGreaterThanOrEqual(2)
+    if (unsupportedAuxiliary.includes(preset.id)) {
+      expect(preset.supportsAuxiliary).toBe(false)
+    } else {
+      expect(preset.supportsAuxiliary).toBe(true)
+    }
+  }
+
+  // 2. 自定义主题色彩槽位生效：黑客帝国修改主题代码绿为琥珀金。
+  const matrixCustom = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'system', themeId: 'matrix',
+    themeConfig: {
+      ...presetConfig('matrix'),
+      themeColors: { color1: '#ffb000', color2: '#100c00' },
+    },
+  }, true)
+  expect(matrixCustom['--lh-theme-color1']).toBe('#ffb000')
+  expect(matrixCustom['--lh-theme-color2']).toBe('#100c00')
+  expect(matrixCustom['--lh-accent']).toBe('#ffb000')
+  expect(matrixCustom['--lh-bg']).toBe('#100c00')
+  expect(contrast(matrixCustom['--lh-accent']!, matrixCustom['--lh-accent-text']!)).toBeGreaterThanOrEqual(4.5)
+
+  // 3. 不支持辅助色的主题，传入种子色不会破坏原主题色彩体系。
+  const matrixWithSeed = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'system', themeId: 'matrix',
+    themeConfig: {
+      ...presetConfig('matrix'),
+      seed: '#ff0000', customSeed: true,
+    },
+  }, true)
+  expect(matrixWithSeed['--lh-accent']).not.toBe('#ff0000')
+
+  // 4. 支持辅助色的主题，辅助色生效并设置 --lh-auxiliary。
+  const modernWithAux = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'system', themeId: 'modern',
+    themeConfig: {
+      ...presetConfig('modern'),
+      seed: '#99497f', customSeed: true,
+    },
+  }, false)
+  expect(modernWithAux['--lh-auxiliary']).toBe('#99497f')
+  expect(modernWithAux['--lh-accent']).toBe('#99497f')
+  expect(contrast(modernWithAux['--lh-auxiliary']!, modernWithAux['--lh-auxiliary-text']!)).toBeGreaterThanOrEqual(4.5)
+})
+
+test('主题色彩明暗自适应：过暗强调色在深色模式提亮、过亮强调色在浅色模式加深、底色调光防护与分模配置', () => {
+  // 1. 深色模式下设置深蓝，自适应提亮保证 AA 对比度。
+  const darkNavyTokens = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'dark', themeId: 'modern',
+    themeConfig: {
+      ...presetConfig('modern'),
+      themeColors: { color1: '#1e3a8a' }, // 极深蓝
+    },
+  }, true)
+  expect(contrast(darkNavyTokens['--lh-accent']!, '#111827')).toBeGreaterThanOrEqual(4.5)
+  expect(contrast(darkNavyTokens['--lh-accent']!, darkNavyTokens['--lh-accent-text']!)).toBeGreaterThanOrEqual(4.5)
+
+  // 2. 浅色模式下设置荧光磷绿，自适应压深保证 AA 对比度。
+  const lightNeonTokens = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'light', themeId: 'modern',
+    themeConfig: {
+      ...presetConfig('modern'),
+      themeColors: { color1: '#00ff66' }, // 荧光绿
+    },
+  }, false)
+  expect(contrast(lightNeonTokens['--lh-accent']!, '#ffffff')).toBeGreaterThanOrEqual(4.5)
+  expect(contrast(lightNeonTokens['--lh-accent']!, lightNeonTokens['--lh-accent-text']!)).toBeGreaterThanOrEqual(4.5)
+
+  // 3. 深色模式误配纯白背景自适应压暗，浅色模式误配纯黑背景自适应提亮，且正文均清晰可读。
+  const darkInvertedTokens = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'dark', themeId: 'modern',
+    themeConfig: {
+      ...presetConfig('modern'),
+      themeColors: { color2: '#ffffff' },
+    },
+  }, true)
+  expect(contrast(darkInvertedTokens['--lh-text']!, darkInvertedTokens['--lh-bg']!)).toBeGreaterThanOrEqual(4.5)
+
+  const lightInvertedTokens = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'light', themeId: 'modern',
+    themeConfig: {
+      ...presetConfig('modern'),
+      themeColors: { color2: '#000000' },
+    },
+  }, false)
+  expect(contrast(lightInvertedTokens['--lh-text']!, lightInvertedTokens['--lh-bg']!)).toBeGreaterThanOrEqual(4.5)
+
+  // 4. 支持分模独立色彩槽位设置：color1_light 与 color1_dark。
+  const splitModeTokensLight = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'light', themeId: 'dracula',
+    themeConfig: {
+      ...presetConfig('dracula'),
+      themeColors: { color1_light: '#6d28d9', color1_dark: '#c084fc' },
+    },
+  }, false)
+  expect(splitModeTokensLight['--lh-accent']).toBe('#6d28d9')
+
+  const splitModeTokensDark = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'dark', themeId: 'dracula',
+    themeConfig: {
+      ...presetConfig('dracula'),
+      themeColors: { color1_light: '#6d28d9', color1_dark: '#c084fc' },
+    },
+  }, true)
+  expect(splitModeTokensDark['--lh-accent']).toBe('#c084fc')
+})
+
+test('语义状态色彩：所有二十套预设双模均包含完整危险/成功/警告 Token，且文字与对应状态实体背景符合对比度规范', () => {
+  for (const preset of THEME_PRESETS) {
+    for (const dark of [false, true]) {
+      const tokens = resolveThemeTokens({
+        title: '主页', revision: 0, appearance: 'system', themeId: preset.id,
+        themeConfig: presetConfig(preset.id),
+      }, dark)
+
+      // 验证核心状态色定义完备性。
+      expect(tokens['--lh-danger']).toBeDefined()
+      expect(tokens['--lh-danger-hover']).toBeDefined()
+      expect(tokens['--lh-danger-bg']).toBeDefined()
+      expect(tokens['--lh-danger-border']).toBeDefined()
+      expect(tokens['--lh-danger-text']).toBeDefined()
+
+      expect(tokens['--lh-success']).toBeDefined()
+      expect(tokens['--lh-success-hover']).toBeDefined()
+      expect(tokens['--lh-success-bg']).toBeDefined()
+      expect(tokens['--lh-success-border']).toBeDefined()
+      expect(tokens['--lh-success-text']).toBeDefined()
+
+      expect(tokens['--lh-warning']).toBeDefined()
+      expect(tokens['--lh-warning-hover']).toBeDefined()
+      expect(tokens['--lh-warning-bg']).toBeDefined()
+      expect(tokens['--lh-warning-border']).toBeDefined()
+      expect(tokens['--lh-warning-text']).toBeDefined()
+
+      // 验证各状态实体背景上的文字对比度达到 AA 级标准。
+      expect(contrast(tokens['--lh-danger-text']!, tokens['--lh-danger']!)).toBeGreaterThanOrEqual(4.5)
+      expect(contrast(tokens['--lh-success-text']!, tokens['--lh-success']!)).toBeGreaterThanOrEqual(4.5)
+      // 警告提示文本在对应提示卡片底色上达到 AA 级标准。
+      if (dark) {
+        expect(contrast(tokens['--lh-warning-text']!, tokens['--lh-bg']!)).toBeGreaterThanOrEqual(4.5)
+      } else {
+        expect(contrast(tokens['--lh-warning-text']!, '#fef3c7')).toBeGreaterThanOrEqual(4.5)
+      }
+    }
+  }
+
+  // 验证终端与新丑主题的专用状态色配置。
+  const brutalistTokens = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'system', themeId: 'brutalist',
+    themeConfig: presetConfig('brutalist'),
+  }, false)
+  expect(brutalistTokens['--lh-danger']).toBe('#ff1744')
+  expect(brutalistTokens['--lh-danger-border']).toBe('#000000')
+
+  const matrixTokens = resolveThemeTokens({
+    title: '主页', revision: 0, appearance: 'system', themeId: 'matrix',
+    themeConfig: presetConfig('matrix'),
+  }, true)
+  expect(matrixTokens['--lh-success']).toBe('#00ff66')
+})
+

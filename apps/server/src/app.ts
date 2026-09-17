@@ -2,10 +2,14 @@ import { Elysia, t } from 'elysia'
 import {
   changePasswordSchema,
   changeUsernameSchema,
+  batchCreateWallpaperSchema,
+  batchDeleteWallpapersSchema,
   createBookmarkGroupSchema,
   createBookmarkSchema,
   createSearchEngineSchema,
+  createWallpaperPoolSchema,
   createWallpaperSchema,
+  updateWallpaperPoolSchema,
   fetchFaviconSchema,
   loginSchema,
   privacySetupSchema,
@@ -299,19 +303,41 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       const iconUrl = await faviconService.fetchAndCache(body.url, body.forceRefresh ?? false)
       return { iconUrl }
     }, { body: fetchFaviconSchema })
-    .get('/wallpapers', ({ user }) => {
-      return { wallpapers: wallpaperService.list(user.id) }
+    .get('/wallpapers/pools', ({ user }) => {
+      return { pools: wallpaperService.listPools(user.id) }
     })
+    .post('/wallpapers/pools', ({ user, body }) => {
+      return { pool: wallpaperService.createPool(user.id, body) }
+    }, { body: createWallpaperPoolSchema })
+    .put('/wallpapers/pools/:id', ({ user, params, body }) => {
+      return { pool: wallpaperService.updatePool(user.id, params.id, body) }
+    }, { params: t.Object({ id: t.String() }), body: updateWallpaperPoolSchema })
+    .delete('/wallpapers/pools/:id', ({ user, params }) => {
+      wallpaperService.deletePool(user.id, params.id)
+      return { success: true }
+    }, { params: t.Object({ id: t.String() }) })
+    .get('/wallpapers', ({ user, query }) => {
+      return { wallpapers: wallpaperService.list(user.id, query.poolId) }
+    }, { query: t.Object({ poolId: t.Optional(t.String()) }) })
     .post('/wallpapers', ({ user, body }) => {
       return { wallpaper: wallpaperService.create(user.id, body) }
     }, { body: createWallpaperSchema })
+    .post('/wallpapers/batch', ({ user, body }) => {
+      return { wallpapers: wallpaperService.createBatch(user.id, body.items, body.poolId) }
+    }, { body: batchCreateWallpaperSchema })
+    .post('/wallpapers/batch-delete', ({ user, body }) => {
+      const result = wallpaperService.deleteBatch(user.id, body.ids)
+      return { success: true, ...result }
+    }, { body: batchDeleteWallpapersSchema })
     .post('/wallpapers/upload', async ({ user, body }) => {
-      const wallpaper = await wallpaperService.saveUpload(user.id, body.file, body.name)
+      const wallpaper = await wallpaperService.saveUpload(user.id, body.file, body.name, body.poolId, body.fitMode)
       return { wallpaper }
     }, {
       body: t.Object({
         file: t.File(),
         name: t.Optional(t.String()),
+        poolId: t.Optional(t.String()),
+        fitMode: t.Optional(t.String()),
       }),
     })
     .put('/wallpapers/:id', ({ user, params, body }) => {
