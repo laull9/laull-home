@@ -47,7 +47,21 @@ const { data, error } = await $api.settings.get()
 
 错误统一返回 `{ code, message }`。400 为参数或 JSON 错误；401 为未登录或凭据错误；403 为来源或未解锁错误；404 为路径或资源不存在；409 为设置版本冲突；429 为登录窗口耗尽；500 不返回内部异常内容。Eden 的全局错误钩子不保证每个错误响应都能推导出细分类型，UI 按 HTTP 状态处理，不能假设任意失败都含业务数据。
 
-当前没有公开注册、微服务接入或附件导出 API。不要把后续规划接口当作已实现能力。
+当前没有公开注册或附件导出 API。不要把后续规划接口当作已实现能力。
+
+## 微服务接入 (Integrations)
+
+| 方法 | 路径 | 认证 | 请求与响应 |
+| --- | --- | --- | --- |
+| POST | /integrations/discover | Session | `{ baseUrl, authType?, secret?, allowedHosts? }` → `{ manifest }` |
+| GET | /integrations | Session | `{ integrations: [{ id, spaceId, name, slug, baseUrl, authType, allowedHosts, manifest, hasSecret, ... }] }` |
+| GET | /integrations/:id | Session | `{ integration }` 单个微服务配置 |
+| POST | /integrations | Session | `{ spaceId?, name, slug, baseUrl, authType, allowedHosts?, timeout?, maxConcurrency?, secret? }` → `{ integration }` |
+| PUT | /integrations/:id | Session | `{ name?, slug?, baseUrl?, authType?, allowedHosts?, timeout?, maxConcurrency?, secret?, removeSecret? }` → `{ integration }` |
+| DELETE | /integrations/:id | Session | `{ success: true }` 级联清理集成与密文凭据 |
+| GET | /integrations/:id/widgets/:widgetId/data | Session/空间授权 | 受控数据代理：仅允许请求 Manifest 声明的路径，返回微服务数据 |
+| POST | /integrations/:id/actions/:actionId | Session/空间授权 | 受控动作执行：仅允许触发 Manifest 声明的 Action，返回微服务响应 |
+| POST | /integrations/rotate-key | Session | `{ oldMasterKey, newMasterKey }` → `{ success: true, count }` 批量轮换主密钥 |
 
 
 ## 组件画布

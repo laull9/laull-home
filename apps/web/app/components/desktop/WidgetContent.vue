@@ -7,6 +7,7 @@ import FolderWidget from './widgets/FolderWidget.vue'
 import CountdownWidget from './widgets/CountdownWidget.vue'
 import TodoWidget from './widgets/TodoWidget.vue'
 import NoteWidget from './widgets/NoteWidget.vue'
+import ServiceWidget from './widgets/ServiceWidget.vue'
 
 // 渲染器只接收当前空间授权后的书签与分组数据。
 const props = defineProps<{ node: WidgetNode; bookmarks: Bookmark[]; groups: BookmarkGroup[]; editing: boolean; width: number }>()
@@ -134,6 +135,14 @@ const month = computed(() => {
     :editing="editing"
     :width="width"
     @update="emit('update', $event)"
+  />
+
+  <!-- 微服务小部件 -->
+  <ServiceWidget
+    v-else-if="node.type === 'service'"
+    :node="node"
+    :editing="editing"
+    :width="width"
   />
 
   <!-- 缺失引用提示 -->

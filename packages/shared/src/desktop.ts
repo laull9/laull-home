@@ -26,7 +26,7 @@ export const widgetSchema = Type.Object({
   type: Type.Union([
     Type.Literal('search'), Type.Literal('bookmark'), Type.Literal('folder'),
     Type.Literal('note'), Type.Literal('clock'), Type.Literal('calendar'),
-    Type.Literal('countdown'), Type.Literal('todo'),
+    Type.Literal('countdown'), Type.Literal('todo'), Type.Literal('service'),
   ]),
   title: Type.String({ minLength: 1, maxLength: 80 }),
   content: Type.String({ maxLength: 8000 }), referenceId: Type.String({ maxLength: 64 }),
@@ -34,6 +34,15 @@ export const widgetSchema = Type.Object({
   stackId: Type.String({ maxLength: 64 }), css: Type.String({ maxLength: 4000 }),
   variant: Type.Optional(Type.String({ maxLength: 64 })),
   style: Type.Optional(widgetStyleSchema),
+  // 微服务小部件专有配置。
+  integrationId: Type.Optional(Type.String({ maxLength: 64 })),
+  widgetId: Type.Optional(Type.String({ maxLength: 64 })),
+  renderer: Type.Optional(Type.Union([
+    Type.Literal('metric-grid'),
+    Type.Literal('status-card'),
+    Type.Literal('api-card'),
+  ])),
+  refreshInterval: Type.Optional(Type.Integer({ minimum: 1000, maximum: 86400000 })),
   layouts: Type.Object({
     mobile: Type.Optional(placementSchema), tablet: Type.Optional(placementSchema),
     laptop: Type.Optional(placementSchema), desktop: placementSchema,
@@ -61,6 +70,7 @@ export const WIDGET_CATALOG = [
   { type: 'countdown', title: '倒数纪念日', category: 'tools', w: 2, h: 2, desc: '目标日倒数与流逝进度' },
   { type: 'todo', title: '待办清单', category: 'tools', w: 2, h: 2, desc: '桌面随手勾选待办任务' },
   { type: 'note', title: '便签', category: 'tools', w: 2, h: 2, desc: '桌面便笺与备忘草稿' },
+  { type: 'service', title: '微服务卡片', category: 'services', w: 2, h: 2, desc: '呈现自托管微服务指标与动作' },
 ] as const
 // 创建继承全局主题的节点。
 export function newWidget(type: WidgetNode['type'], id: string, variant?: string): WidgetNode {
@@ -68,6 +78,7 @@ export function newWidget(type: WidgetNode['type'], id: string, variant?: string
   const defaultW = (type === 'bookmark' && variant === 'pill') ? 2 : entry.w
   return { id, type, title: entry.title, content: '', referenceId: '', timezone: 'Asia/Shanghai', hour12: false,
     stackId: '', css: '', ...(variant ? { variant } : {}),
+    ...(type === 'service' ? { renderer: 'metric-grid', refreshInterval: 10000 } : {}),
     ...(type === 'bookmark' ? { style: { opacity: 100, blur: 0, radius: 16, padding: 4, border: 0, color: '', background: '', frameless: true } } : {}),
     layouts: { desktop: { x: 0, y: 0, w: defaultW, h: entry.h, pinned: false } } }
 }

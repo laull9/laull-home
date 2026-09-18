@@ -37,6 +37,7 @@ import { createSettingsService } from './modules/settings/service'
 import { createSpacesService } from './modules/spaces/service'
 import { createWallpaperService, WallpaperError } from './modules/wallpapers/service'
 import { broadcastDesktopEvent, createMcpProtocolRoutes, createMcpService } from './modules/mcp'
+import { createIntegrationRoutes, createIntegrationService, IntegrationError, IntegrationHttpError } from './modules/integrations'
 
 // 检查请求来源是否属于受信任的站点或本地开发环境。
 export function isTrustedOrigin(originHeader: string | null | undefined, refererHeader: string | null | undefined, configOrigin: string): boolean {
@@ -80,6 +81,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
   const faviconService = createFaviconService(config.dataDir)
   const wallpaperService = createWallpaperService(db, config.dataDir)
   const mcpService = createMcpService(db)
+  const integrationService = createIntegrationService(db, config.masterKey ?? 'laull-home-default-master-key-32b')
   const cookieOptions = {
     // 限制 Cookie 只能由 HTTP 读取。
     httpOnly: true,
@@ -114,7 +116,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
         if (error.status === 409) return status(409, body)
         return status(429, body)
       }
-      if (error instanceof BookmarkError || error instanceof SearchEngineError || error instanceof FaviconError || error instanceof WallpaperError) {
+      if (error instanceof BookmarkError || error instanceof SearchEngineError || error instanceof FaviconError || error instanceof WallpaperError || error instanceof IntegrationError || error instanceof IntegrationHttpError) {
         return status(error.status, { code: 'BUSINESS_ERROR', message: error.message })
       }
       if (code === 'VALIDATION') {
@@ -388,6 +390,8 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
     .post('/mcp/key/refresh', ({ user }) => mcpService.refreshKey(user.id))
     // 停用并吊销 MCP 密钥。
     .delete('/mcp/key', ({ user }) => ({ success: mcpService.revokeKey(user.id) }))
+    // 装配受控微服务接入路由。
+    .use(createIntegrationRoutes({ integrationService, spacesService: spaces, authService: auth }))
 }
 
 // 前端只导入此类型，禁止引入后端运行时代码。

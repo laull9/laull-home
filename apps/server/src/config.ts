@@ -16,6 +16,8 @@ export interface ServerConfig {
   secureCookie: boolean
   // Session 的固定有效时长。
   sessionDays: number
+  // 微服务凭据加密主密钥。
+  masterKey?: string
 }
 
 // 仓库目录不受启动命令所在目录影响。
@@ -48,5 +50,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     origin,
     secureCookie: url.protocol === 'https:',
     sessionDays: integer(env.LAULL_HOME_SESSION_DAYS, 90, 365),
+    masterKey: env.LAULL_HOME_MASTER_KEY ?? 'laull-home-default-master-key-32b',
   }
 }

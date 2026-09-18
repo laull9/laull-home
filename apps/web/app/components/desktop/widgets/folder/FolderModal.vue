@@ -169,7 +169,7 @@ onUnmounted(() => {
                   type="search"
                   placeholder="快速查找..."
                   aria-label="筛选容器内条目"
-                  class="viewport-search-input"
+                  class="viewport-search-input search-input"
                 >
                 <button
                   v-if="filterText"
@@ -308,10 +308,12 @@ onUnmounted(() => {
 /* 顶栏操作：搜索与关闭按钮 */
 .viewport-controls { display: flex; align-items: center; gap: 12px; }
 .inline-search-box { position: relative; display: flex; align-items: center; }
-.search-ico { position: absolute; left: 10px; width: 14px; height: 14px; pointer-events: none; opacity: .7; color: var(--lh-text-secondary); z-index: 2; }
-.viewport-search-input { width: 160px; padding: 6px 28px 6px 30px; border-radius: var(--lh-radius-md); border: 1px solid var(--lh-border); background: color-mix(in srgb, var(--lh-input-bg) 85%, transparent); color: var(--lh-text); font-size: 12px; outline: none; transition: width 0.2s, border-color 0.2s, box-shadow 0.2s; }
+.search-ico { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); width: 14px; height: 14px; pointer-events: none; opacity: .7; color: var(--lh-text-secondary); z-index: 2; }
+.viewport-search-input { width: 160px; padding: 6px 28px 6px 32px !important; border-radius: var(--lh-radius-md); border: 1px solid var(--lh-border); background: color-mix(in srgb, var(--lh-input-bg) 85%, transparent); color: var(--lh-text); font-size: 12px; outline: none; transition: width 0.2s, border-color 0.2s, box-shadow 0.2s; }
 .viewport-search-input:focus { width: 200px; border-color: var(--lh-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--lh-accent) 20%, transparent); }
-.search-clear-btn { position: absolute; right: 8px; background: none; border: none; color: var(--lh-text-secondary); cursor: pointer; padding: 2px; }
+.viewport-search-input::-webkit-search-decoration,
+.viewport-search-input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+.search-clear-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--lh-text-secondary); cursor: pointer; padding: 2px; display: flex; align-items: center; justify-content: center; font-size: 12px; line-height: 1; }
 .viewport-close-btn { width: 32px; height: 32px; border-radius: 50%; background: var(--lh-surface-hover); border: 1px solid var(--lh-border); color: var(--lh-text); font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background .15s, transform .15s; }
 .viewport-close-btn:hover { background: var(--lh-surface-active); transform: scale(1.08); }
 

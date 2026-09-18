@@ -283,4 +283,56 @@ export const mcpKeys = sqliteTable('mcp_keys', {
   updatedAt: integer('updated_at').notNull(),
 })
 
+// 微服务接入表定义。
+export const integrations = sqliteTable('integrations', {
+  // 唯一标识。
+  id: text('id').primaryKey(),
+  // 所属用户编号。
+  userId: integer('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
+  // 所属空间标识。
+  spaceId: text('space_id').notNull().references(() => spaces.id, { onDelete: 'cascade' }),
+  // 服务名称。
+  name: text('name').notNull(),
+  // 唯一代号标识。
+  slug: text('slug').notNull().unique(),
+  // 目标基准访问地址。
+  baseUrl: text('base_url').notNull(),
+  // 认证类型：none、bearer、basic、api-key。
+  authType: text('auth_type').notNull().default('none'),
+  // 目标允许访问的主机与端口列表 JSON 数组。
+  allowedHosts: text('allowed_hosts').notNull().default('[]'),
+  // 请求超时毫秒数。
+  timeout: integer('timeout').notNull().default(5000),
+  // 最大并发请求数。
+  maxConcurrency: integer('max_concurrency').notNull().default(5),
+  // 经过校验的清单 JSON 文本。
+  manifest: text('manifest').notNull().default('{}'),
+  // 创建时间戳。
+  createdAt: integer('created_at').notNull(),
+  // 更新时间戳。
+  updatedAt: integer('updated_at').notNull(),
+}, table => [
+  // 按所属用户索引服务。
+  index('idx_integrations_user').on(table.userId),
+  // 按所属空间索引服务。
+  index('idx_integrations_space').on(table.spaceId),
+  // 按代号快速查找。
+  uniqueIndex('idx_integrations_slug').on(table.slug),
+])
+
+// 微服务凭据加密存储表，严格保存在后端并禁止进入浏览器。
+export const integrationSecrets = sqliteTable('integration_secrets', {
+  // 关联服务编号。
+  integrationId: text('integration_id').primaryKey().references(() => integrations.id, { onDelete: 'cascade' }),
+  // AES-256-GCM 格式加密密文（v1:iv:tag:ciphertext）。
+  encryptedSecret: text('encrypted_secret').notNull(),
+  // 主密钥轮换版本号。
+  keyVersion: integer('key_version').notNull().default(1),
+  // 创建时间戳。
+  createdAt: integer('created_at').notNull(),
+  // 更新时间戳。
+  updatedAt: integer('updated_at').notNull(),
+})
+
+
 

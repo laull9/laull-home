@@ -6,11 +6,24 @@ import { scopedCss, BREAKPOINTS, type WidgetNode, type Bookmark, type BookmarkGr
 const props = defineProps<{ node: WidgetNode | null; breakpoint: Breakpoint; bookmarks: Bookmark[]; groups: BookmarkGroup[] }>()
 // 保存、复制与模板操作交给画布统一管理。
 const emit = defineEmits<{ close: []; save: [node: WidgetNode]; copy: [node: WidgetNode]; template: [node: WidgetNode]; remove: [id: string] }>()
+const { $api } = useNuxtApp()
 // 配置草稿、初始快照、错误与代码串。
 const draft = ref<WidgetNode | null>(null)
 let initialSnapshot: WidgetNode | null = null
 const error = ref('')
 const code = ref('')
+const availableServices = ref<Array<{ id: string; name: string; manifest: { widgets: Array<{ id: string; name: string; renderer: 'metric-grid' | 'status-card' | 'api-card' }> } }>>([])
+
+onMounted(async () => {
+  try {
+    const res = await $api.integrations.get({})
+    if (res.data?.integrations) {
+      availableServices.value = res.data.integrations as typeof availableServices.value
+    }
+  } catch {
+    // 忽略加载错误
+  }
+})
 
 watch(() => props.node, node => {
   draft.value = node ? JSON.parse(JSON.stringify(node)) : null
@@ -130,6 +143,32 @@ function exportCode() {
       <label v-if="draft.type === 'folder'">分组<select v-model="draft.referenceId"><option value="">请选择</option><option v-for="item in groups" :key="item.id" :value="item.id">{{ item.name }}</option></select></label>
       <label v-if="draft.type === 'note'">内容<textarea v-model="draft.content" rows="5" maxlength="8000" /></label>
       <label v-if="draft.type === 'countdown'">目标日期<input v-model="draft.content" type="date" required></label>
+      <template v-if="draft.type === 'service'">
+        <label>
+          关联微服务
+          <select v-model="draft.integrationId" @change="draft ? draft.widgetId = '' : null">
+            <option value="">请选择微服务</option>
+            <option v-for="srv in availableServices" :key="srv.id" :value="srv.id">{{ srv.name }}</option>
+          </select>
+        </label>
+        <label v-if="draft.integrationId">
+          关联小部件
+          <select v-model="draft.widgetId">
+            <option value="">请选择小部件</option>
+            <option
+              v-for="w in availableServices.find(s => s.id === draft?.integrationId)?.manifest.widgets || []"
+              :key="w.id"
+              :value="w.id"
+            >
+              {{ w.name }} ({{ w.renderer }})
+            </option>
+          </select>
+        </label>
+        <label>
+          刷新频率（毫秒）
+          <input v-model.number="draft.refreshInterval" type="number" min="1000" max="86400000" step="1000">
+        </label>
+      </template>
       <template v-if="draft.type === 'clock' || draft.type === 'calendar'">
         <label>时区<input v-model="draft.timezone" required list="timezones"></label>
         <datalist id="timezones"><option>Asia/Shanghai</option><option>Asia/Tokyo</option><option>Europe/London</option><option>America/New_York</option><option>UTC</option></datalist>

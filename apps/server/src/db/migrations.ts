@@ -251,6 +251,37 @@ export const migrations = [{
       window_end INTEGER NOT NULL
     ) STRICT;
   `,
+}, {
+  // 迁移版本 13：引入微服务接入表与 Secret 加密凭据存储表。
+  version: 13,
+  // 建立 integrations 与 integration_secrets 表及其级联和索引。
+  sql: `
+    CREATE TABLE integrations (
+      id TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      space_id TEXT NOT NULL REFERENCES spaces(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      base_url TEXT NOT NULL,
+      auth_type TEXT NOT NULL DEFAULT 'none' CHECK (auth_type IN ('none', 'bearer', 'basic', 'api-key')),
+      allowed_hosts TEXT NOT NULL DEFAULT '[]',
+      timeout INTEGER NOT NULL DEFAULT 5000 CHECK (timeout BETWEEN 500 AND 30000),
+      max_concurrency INTEGER NOT NULL DEFAULT 5 CHECK (max_concurrency BETWEEN 1 AND 20),
+      manifest TEXT NOT NULL DEFAULT '{}',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX idx_integrations_user ON integrations(user_id);
+    CREATE INDEX idx_integrations_space ON integrations(space_id);
+    CREATE UNIQUE INDEX idx_integrations_slug ON integrations(slug);
+    CREATE TABLE integration_secrets (
+      integration_id TEXT PRIMARY KEY REFERENCES integrations(id) ON DELETE CASCADE,
+      encrypted_secret TEXT NOT NULL,
+      key_version INTEGER NOT NULL DEFAULT 1 CHECK (key_version >= 1),
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    ) STRICT;
+  `,
 }]
 
 

@@ -182,7 +182,7 @@ function handleContextAction(id: string) {
           type="search"
           placeholder="快速查找..."
           aria-label="筛选文件夹书签"
-          class="inline-filter drawer-input"
+          class="inline-filter drawer-input search-input"
         >
       </div>
       <div class="drawer-body">
@@ -268,7 +268,7 @@ function handleContextAction(id: string) {
 }
 .inline-filter {
   font-size: 11px;
-  padding: 3px 8px;
+  padding: 3px 8px !important;
   border: 1px solid var(--lh-border);
   border-radius: 6px;
   background: var(--lh-input-bg);

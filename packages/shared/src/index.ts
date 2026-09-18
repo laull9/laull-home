@@ -3,6 +3,7 @@ export * from './desktop'
 export * from './theme'
 export * from './wallpaper'
 export * from './mcp'
+export * from './integration'
 import { Type, type Static } from '@sinclair/typebox'
 
 // 登录输入限制用于前后端一致校验。

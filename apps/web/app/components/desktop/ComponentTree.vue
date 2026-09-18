@@ -149,7 +149,7 @@ function submitImport() {
           type="search"
           placeholder="搜索组件或变体..."
           aria-label="实时搜索组件"
-          class="tree-search-input"
+          class="tree-search-input search-input"
         >
         <button v-if="searchQuery" type="button" class="clear-search-btn" @click="searchQuery = ''">✕</button>
       </div>
@@ -305,7 +305,9 @@ function submitImport() {
 
 /* 搜索框 */
 .search-box { position: relative; width: 100%; }
-.tree-search-input { width: 100%; box-sizing: border-box; padding: 8px 30px 8px 12px; border-radius: var(--lh-radius-md); border: 1px solid var(--lh-border); background: color-mix(in srgb, var(--lh-input-bg) 85%, transparent); color: var(--lh-text); font-size: 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.tree-search-input { width: 100%; box-sizing: border-box; padding: 8px 30px 8px 12px !important; border-radius: var(--lh-radius-md); border: 1px solid var(--lh-border); background: color-mix(in srgb, var(--lh-input-bg) 85%, transparent); color: var(--lh-text); font-size: 13px; outline: none; transition: border-color .15s, box-shadow .15s; }
+.tree-search-input::-webkit-search-decoration,
+.tree-search-input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
 .tree-search-input:focus { border-color: var(--lh-accent); box-shadow: 0 0 0 2px color-mix(in srgb, var(--lh-accent) 20%, transparent); }
 .clear-search-btn { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--lh-text-secondary); cursor: pointer; padding: 2px; }
 

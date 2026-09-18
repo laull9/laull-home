@@ -53,11 +53,11 @@
 
 ## v0.3 私人服务
 
-- [ ] 实现 Widget Renderer 白名单和按断点存储的布局
-- [ ] 实现 Integration 数据模型、目标允许列表及超时和并发限制
-- [ ] 实现 AES-256-GCM Secret 存储、密钥轮换与日志脱敏
-- [ ] 实现 Manifest 校验、受控数据代理和 Action 授权
-- [ ] 验证 DNS 解析、重定向和内网访问策略，防止任意代理
+- [x] 实现 Widget Renderer 白名单和按断点存储的布局
+- [x] 实现 Integration 数据模型、目标允许列表及超时和并发限制
+- [x] 实现 AES-256-GCM Secret 存储、密钥轮换与日志脱敏
+- [x] 实现 Manifest 校验、受控数据代理和 Action 授权
+- [x] 验证 DNS 解析、重定向和内网访问策略，防止任意代理
 
 ## v0.4 扩展与备份
 
