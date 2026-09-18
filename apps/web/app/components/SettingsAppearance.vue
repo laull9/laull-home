@@ -88,6 +88,14 @@ function onCustomColor(e: globalThis.Event) {
       </fieldset>
 
       <section class="section-group">
+        <h3 class="section-title">桌面交互</h3>
+        <label class="drag-setting-item">
+          <input v-model="model.allowDragWithoutEdit" type="checkbox">
+          <span>未进入编辑模式时允许直接拖动图标链接调整位置</span>
+        </label>
+      </section>
+
+      <section class="section-group">
         <h3 class="section-title">主题风格</h3>
         <div class="category-tabs" role="tablist" aria-label="主题分类筛选">
           <button
@@ -322,4 +330,5 @@ function onCustomColor(e: globalThis.Event) {
 
 .customize { border-top: 1px solid var(--lh-border); padding-top: 20px; }
 summary { cursor: pointer; margin-bottom: 20px; }
+.drag-setting-item { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer; color: var(--lh-text); }
 </style>

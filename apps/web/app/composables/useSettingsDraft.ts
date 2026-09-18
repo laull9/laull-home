@@ -8,7 +8,7 @@ import { getLegacyColorSeed, normalizeThemeId, presetConfig } from '../utils/the
 export function useSettingsDraft() {
   const { $api } = useNuxtApp()
   const { applyTheme } = useTheme()
-  const draft = ref<HomeSettings>({ revision: 0, title: '', appearance: 'system', themeId: 'modern', wallpaperType: 'none', wallpaperValue: '', customCss: '', themeConfig: presetConfig('modern') })
+  const draft = ref<HomeSettings>({ revision: 0, title: '', appearance: 'system', themeId: 'modern', wallpaperType: 'none', wallpaperValue: '', customCss: '', themeConfig: presetConfig('modern'), allowDragWithoutEdit: true })
   const ready = ref(false)
   const state = ref('saved')
   const message = ref('')
@@ -43,6 +43,7 @@ export function useSettingsDraft() {
       const seed = baseConfig.seed || legacySeed || '#2563eb'
       draft.value = {
         ...loaded,
+        allowDragWithoutEdit: loaded.allowDragWithoutEdit !== undefined ? loaded.allowDragWithoutEdit : true,
         themeId,
         themeConfig: { ...baseConfig, seed, customSeed: true },
       }

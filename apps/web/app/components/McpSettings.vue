@@ -172,7 +172,11 @@ onMounted(() => {
           </div>
         </div>
 
-        <div v-else-if="!loading" class="no-key-state">
+        <div v-else-if="loading" class="loading-state">
+          <p>正在读取 MCP 密钥状态…</p>
+        </div>
+
+        <div v-else class="no-key-state">
           <p>尚未创建 MCP 访问密钥。生成密钥后，外部 AI 助手即可通过 Bearer 凭据连接服务端。</p>
         </div>
 
@@ -286,6 +290,20 @@ onMounted(() => {
 
 .key-status-area {
   margin-top: 12px;
+  min-height: 80px;
+}
+
+.loading-state {
+  padding: 16px;
+  border-radius: var(--lh-radius-sm);
+  background: var(--lh-input-bg);
+  border: 1px dashed var(--lh-border);
+  font-size: 13px;
+  color: var(--lh-text-secondary);
+}
+
+.loading-state p {
+  margin: 0;
 }
 
 .mask-box {

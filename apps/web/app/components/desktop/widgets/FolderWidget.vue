@@ -14,8 +14,6 @@ const emit = defineEmits<{ editBookmark: [bookmark: Bookmark]; addBookmark: [] }
 
 // 弹窗展开状态。
 const isModalOpen = ref(false)
-// 卡片内风琴抽屉展开状态。
-const isDrawerExpanded = ref(false)
 // 搜索过滤字符串。
 const searchQuery = ref('')
 // 文件夹快捷菜单位置。
@@ -42,7 +40,6 @@ function handleItemClick(event: MouseEvent, item: Bookmark) {
 }
 // 拖动文件夹内图标移出到桌面。
 function handleItemDragStart(event: DragEvent, item: Bookmark) {
-  if (!props.editing) return
   event.stopPropagation()
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
@@ -125,7 +122,7 @@ function handleContextAction(id: string) {
           rel="noopener noreferrer"
           class="shelf-item"
           data-folder-item="true"
-          :draggable="editing"
+          draggable="true"
           @dragstart="handleItemDragStart($event, item)"
           @click="handleItemClick($event, item)"
         >
@@ -160,7 +157,7 @@ function handleContextAction(id: string) {
           rel="noopener noreferrer"
           class="folder-item"
           data-folder-item="true"
-          :draggable="editing"
+          draggable="true"
           @dragstart="handleItemDragStart($event, item)"
           @click="handleItemClick($event, item)"
         >
@@ -170,7 +167,7 @@ function handleContextAction(id: string) {
       </div>
     </template>
 
-    <!-- 原生折叠风琴收纳抽屉模式 (accordion, 默认) -->
+    <!-- 默认文件夹卡片模式 -->
     <template v-else>
       <div class="drawer-header">
         <div class="drawer-title-row" role="button" tabindex="0" title="点击全屏打开容器" @click="isModalOpen = true">
@@ -179,7 +176,7 @@ function handleContextAction(id: string) {
           <span class="drawer-open-indicator" aria-hidden="true">⤢</span>
         </div>
         <input
-          v-if="isDrawerExpanded && width >= 2"
+          v-if="width >= 3"
           v-model="searchQuery"
           type="search"
           placeholder="快速查找..."
@@ -187,17 +184,17 @@ function handleContextAction(id: string) {
           class="inline-filter drawer-input"
         >
       </div>
-      <div class="drawer-body" :class="{ expanded: isDrawerExpanded }">
+      <div class="drawer-body">
         <div v-if="items.length > 0" class="drawer-grid">
           <a
-            v-for="item in (isDrawerExpanded ? filteredItems : items.slice(0, width * 2))"
+            v-for="item in filteredItems"
             :key="item.id"
             :href="item.url"
             target="_blank"
             rel="noopener noreferrer"
             class="drawer-item"
             data-folder-item="true"
-            :draggable="editing"
+            draggable="true"
             @dragstart="handleItemDragStart($event, item)"
             @click="handleItemClick($event, item)"
           >
@@ -210,15 +207,6 @@ function handleContextAction(id: string) {
           <button type="button" class="empty-add-btn" @click.stop="emit('addBookmark')">+ 添加条目</button>
         </div>
       </div>
-      <button
-        v-if="items.length > width * 2"
-        type="button"
-        class="drawer-toggle-bar"
-        @click="isDrawerExpanded = !isDrawerExpanded"
-      >
-        <span>{{ isDrawerExpanded ? '就地收起' : '就地展开其余 ' + (items.length - width * 2) + ' 项' }}</span>
-        <span class="toggle-icon">{{ isDrawerExpanded ? '▲' : '▼' }}</span>
-      </button>
     </template>
 
     <!-- 全局弹窗浏览模式 -->
@@ -369,8 +357,29 @@ function handleContextAction(id: string) {
 .drawer-title-row:active { transform: scale(0.98); }
 .drawer-open-indicator { font-size: 11px; opacity: 0.5; transition: opacity 0.15s, transform 0.15s; }
 .drawer-title-row:hover .drawer-open-indicator { opacity: 1; transform: scale(1.15); }
-.drawer-body { flex: 1; overflow-y: auto; min-height: 0; transition: opacity 0.18s ease; }
-.drawer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px; }
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--lh-text-secondary) 25%, transparent) transparent;
+}
+.drawer-body::-webkit-scrollbar {
+  width: 4px;
+}
+.drawer-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.drawer-body::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--lh-text-secondary) 25%, transparent);
+  border-radius: 9999px;
+}
+.drawer-body::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--lh-text-secondary) 50%, transparent);
+}
+.drawer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px; padding-bottom: 4px; }
 .drawer-item {
   display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none;
   color: inherit; padding: 4px 2px; border-radius: 8px;
@@ -384,18 +393,34 @@ function handleContextAction(id: string) {
 .drawer-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; min-height: 70px; gap: 6px; }
 .empty-hint { font-size: 11px; color: var(--lh-text-secondary); }
 .empty-add-btn { font-size: 11px; padding: 2px 8px; border-radius: 4px; background: var(--lh-surface-hover); border: 1px solid var(--lh-border); cursor: pointer; color: var(--lh-text); }
-.drawer-toggle-bar {
-  margin-top: 4px; display: flex; align-items: center; justify-content: center; gap: 4px; width: 100%;
-  padding: 3px 0; border: 1px dashed var(--lh-border); border-radius: 6px; background: var(--lh-surface);
-  color: var(--lh-text-secondary); font-size: 10px; cursor: pointer; flex-shrink: 0; transition: background 0.15s ease;
-}
-.drawer-toggle-bar:hover { background: var(--lh-surface-hover); color: var(--lh-text); }
-.toggle-icon { font-size: 8px; }
 
 /* 经典平铺网格 */
 .folder-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 8px; }
 .folder-title-btn { display: flex; align-items: center; gap: 6px; background: transparent; border: none; padding: 0; cursor: pointer; }
-.folder-grid { flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px; overflow-y: auto; }
+.folder-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(58px, 1fr));
+  gap: 8px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--lh-text-secondary) 25%, transparent) transparent;
+}
+.folder-grid::-webkit-scrollbar {
+  width: 4px;
+}
+.folder-grid::-webkit-scrollbar-track {
+  background: transparent;
+}
+.folder-grid::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--lh-text-secondary) 25%, transparent);
+  border-radius: 9999px;
+}
+.folder-grid::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--lh-text-secondary) 50%, transparent);
+}
 .folder-item {
   display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none;
   color: inherit; font-size: 11px; padding: 4px 2px; border-radius: 8px;

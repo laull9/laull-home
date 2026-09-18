@@ -35,14 +35,8 @@ const source = computed(() => {
   return ''
 })
 
-// 图片载入后提取可见像素分析亮度以精准识别深色图标。
-function handleImageLoad(event: Event) {
-  const img = event.target as HTMLImageElement
-  if (!img || img.naturalWidth === 0) return
-  if (matchesDarkKeyword(props.title + ' ' + props.iconUrl)) {
-    isDarkIcon.value = true
-    return
-  }
+// 提取可见像素分析亮度以精准识别深色图标。
+function analyzeIconLuma(img: HTMLImageElement) {
   try {
     const canvas = document.createElement('canvas')
     canvas.width = 16
@@ -73,6 +67,21 @@ function handleImageLoad(event: Event) {
     }
   } catch {
     // 跨域受限降级使用关键词判定。
+  }
+}
+
+// 图片载入后在空闲调度周期中进行像素分析。
+function handleImageLoad(event: Event) {
+  const img = event.target as HTMLImageElement
+  if (!img || img.naturalWidth === 0) return
+  if (matchesDarkKeyword(props.title + ' ' + props.iconUrl)) {
+    isDarkIcon.value = true
+    return
+  }
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(() => analyzeIconLuma(img), { timeout: 1000 })
+  } else {
+    setTimeout(() => analyzeIconLuma(img), 16)
   }
 }
 </script>

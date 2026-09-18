@@ -15,18 +15,25 @@ export class FaviconError extends Error {
 // 检查是否为私有、回环或内网受限 IP。
 export function isPrivateIp(ip: string): boolean {
   if (ip === "localhost" || ip === "::1" || ip === "::") return true
-  let cleanIp = ip
+  let cleanIp = ip.trim().toLowerCase()
+  if (cleanIp.startsWith("[") && cleanIp.endsWith("]")) {
+    cleanIp = cleanIp.slice(1, -1)
+  }
   if (cleanIp.startsWith("::ffff:")) cleanIp = cleanIp.slice(7)
   const parts = cleanIp.split(".").map(Number)
   if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
     const a = parts[0] ?? -1
     const b = parts[1] ?? -1
+    const c = parts[2] ?? -1
     if (a === 0 || a === 127) return true
     if (a === 10) return true
     if (a === 172 && b >= 16 && b <= 31) return true
     if (a === 192 && b === 168) return true
     if (a === 169 && b === 254) return true
     if (a === 100 && b >= 64 && b <= 127) return true
+    if (a === 192 && b === 0 && (c === 0 || c === 2)) return true
+    if (a === 198 && b === 51 && c === 100) return true
+    if (a === 203 && b === 0 && c === 113) return true
     if (a >= 224) return true
     return false
   }
@@ -34,11 +41,12 @@ export function isPrivateIp(ip: string): boolean {
   if (norm === "::1" || norm === "::") return true
   if (norm.startsWith("fc") || norm.startsWith("fd")) return true
   if (norm.startsWith("fe8") || norm.startsWith("fe9") || norm.startsWith("fea") || norm.startsWith("feb")) return true
+  if (norm.startsWith("2001:db8")) return true
   return false
 }
 
-// 校验目标地址并防范 SSRF 攻击。
-export async function assertSafeOutboundUrl(targetUrl: string): Promise<URL> {
+// 校验目标地址并防范 SSRF 及 DNS 重绑定攻击，返回 URL 和已解析的安全 IP。
+export async function assertSafeOutboundUrl(targetUrl: string): Promise<{ url: URL; resolvedIp: string }> {
   let url: URL
   try {
     url = new URL(targetUrl)
@@ -52,6 +60,7 @@ export async function assertSafeOutboundUrl(targetUrl: string): Promise<URL> {
     throw new FaviconError(403, "禁止请求内网或回环地址")
   }
 
+  let resolvedIp = ''
   try {
     const addresses = await lookup(url.hostname, { all: true })
     for (const addr of addresses) {
@@ -59,11 +68,13 @@ export async function assertSafeOutboundUrl(targetUrl: string): Promise<URL> {
         throw new FaviconError(403, "目标主机解析为受限私有 IP")
       }
     }
+    // 取第一个合法地址用于后续请求，防止 DNS 重绑定。
+    resolvedIp = addresses[0]?.address ?? ''
   } catch (err: unknown) {
     if (err instanceof FaviconError) throw err
     throw new FaviconError(400, "无法解析目标主机地址")
   }
-  return url
+  return { url, resolvedIp }
 }
 
 // 创建受控 Favicon 探测与缓存服务。
@@ -77,15 +88,21 @@ export function createFaviconService(dataDir: string) {
     let redirects = 0
 
     while (redirects <= maxRedirects) {
-      const url = await assertSafeOutboundUrl(currentUrl)
+      const { url, resolvedIp } = await assertSafeOutboundUrl(currentUrl)
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), 5000)
 
       try {
-        const res = await fetch(url.toString(), {
+        // 对 HTTP 协议使用物理 IP 并注入 Host 头防 DNS 重绑定；HTTPS 保持域名以通过 TLS SNI 证书校验。
+        const fetchUrl = new URL(url.toString())
+        if (resolvedIp && fetchUrl.protocol === "http:") {
+          fetchUrl.hostname = resolvedIp.includes(':') ? `[${resolvedIp}]` : resolvedIp
+        }
+        const res = await fetch(fetchUrl.toString(), {
           signal: controller.signal,
           redirect: "manual",
           headers: {
+            "Host": url.host,
             "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "accept": "image/*,text/html;q=0.9,*/*;q=0.8",
           },
@@ -172,7 +189,7 @@ export function createFaviconService(dataDir: string) {
 
     // 探测并缓存站点图标，返回本地相对访问路径。
     async fetchAndCache(siteUrl: string, forceRefresh = false): Promise<string> {
-      const safeUrl = await assertSafeOutboundUrl(siteUrl)
+      const { url: safeUrl } = await assertSafeOutboundUrl(siteUrl)
       const domain = safeUrl.hostname
       const urlHash = createHash("sha256").update(domain).digest("hex").slice(0, 16)
 

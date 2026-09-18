@@ -57,29 +57,29 @@ export async function resetPassword(db: AppDatabase, newPassword: string, userna
   db.transaction(tx => {
     tx.update(users).set({ passwordHash }).where(eq(users.id, 1)).run()
     tx.delete(sessions).where(eq(sessions.userId, 1)).run()
-    tx.delete(loginThrottle).where(eq(loginThrottle.id, 1)).run()
+    tx.delete(loginThrottle).run()
   })
 }
 
 // 认证服务持有数据库依赖，不创建全局连接。
 export function createAuthService(db: AppDatabase, config: ServerConfig) {
   return {
-    // 持久化全局登录节流，避免代理地址伪造绕过限制。
-    async login(username: string, password: string, userAgent = '') {
+    // 按来源 IP 独立限流，避免单 IP 恶意尝试锁死全局登录。
+    async login(username: string, password: string, userAgent = '', clientIp = '127.0.0.1') {
       const now = Date.now()
       db.transaction(tx => {
-        const limit = tx.select().from(loginThrottle).where(eq(loginThrottle.id, 1)).get()
+        const limit = tx.select().from(loginThrottle).where(eq(loginThrottle.ip, clientIp)).get()
         if (limit && limit.windowEnd > now && limit.attempts >= 10) {
           throw new AuthError(429, '登录尝试过多，请稍后重试')
         }
         if (!limit || limit.windowEnd <= now) {
-          tx.insert(loginThrottle).values({ id: 1, attempts: 1, windowEnd: now + 15 * 60_000 })
+          tx.insert(loginThrottle).values({ ip: clientIp, attempts: 1, windowEnd: now + 15 * 60_000 })
             .onConflictDoUpdate({
-              target: loginThrottle.id,
+              target: loginThrottle.ip,
               set: { attempts: 1, windowEnd: now + 15 * 60_000 },
             }).run()
         } else {
-          tx.update(loginThrottle).set({ attempts: limit.attempts + 1 }).where(eq(loginThrottle.id, 1)).run()
+          tx.update(loginThrottle).set({ attempts: limit.attempts + 1 }).where(eq(loginThrottle.ip, clientIp)).run()
         }
       })
       const user = db.select().from(users).where(eq(users.id, 1)).get()

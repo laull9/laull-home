@@ -32,8 +32,8 @@ function integer(value: string | undefined, fallback: number, max: number): numb
 export function loadConfig(env: Record<string, string | undefined> = process.env): ServerConfig {
   const origin = env.LAULL_HOME_ORIGIN ?? 'http://localhost:3000'
   const url = new URL(origin)
-  if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin) {
-    throw new Error('LAULL_HOME_ORIGIN 必须为完整来源，不能包含路径或末尾斜杠')
+  if (!['http:', 'https:'].includes(url.protocol) || url.origin !== origin || url.username || url.password || (url.pathname !== '' && url.pathname !== '/')) {
+    throw new Error('LAULL_HOME_ORIGIN 必须为完整来源，不能包含用户名、密码、路径或末尾斜杠')
   }
   if (env.NODE_ENV === 'production' && url.protocol !== 'https:') {
     throw new Error('生产环境必须配置 HTTPS 来源')

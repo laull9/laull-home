@@ -19,6 +19,9 @@ const loading = ref(false)
 // 错误提示文本。
 const errorMessage = ref('')
 
+// 身份检查就绪标记，避免已登录状态下闪烁登录表单。
+const checked = ref(false)
+
 // 系统明暗偏好监听在卸载时释放。
 let stopTheme: (() => void) | undefined
 onUnmounted(() => stopTheme?.())
@@ -26,6 +29,11 @@ onUnmounted(() => stopTheme?.())
 // 已登录用户直接跳转目标页，并预先恢复主题外观。
 onMounted(async () => {
   stopTheme = setupSystemThemeListener()
+  if (user.value) {
+    const redirect = (route.query.redirect as string) || '/'
+    router.replace(redirect)
+    return
+  }
   try {
     const res = await $api.settings.get()
     if (res.data) {
@@ -44,6 +52,8 @@ onMounted(async () => {
   if (user.value) {
     const redirect = (route.query.redirect as string) || '/'
     router.replace(redirect)
+  } else {
+    checked.value = true
   }
 })
 
@@ -68,7 +78,7 @@ async function handleSubmit() {
 </script>
 
 <template>
-  <main class="login-container">
+  <main v-if="checked && !user" class="login-container">
     <div class="login-card">
       <h1 class="login-title">登录</h1>
       <form class="login-form" @submit.prevent="handleSubmit">

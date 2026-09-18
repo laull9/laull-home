@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import type { Bookmark, BookmarkGroup, WidgetNode } from '@laull-home/shared'
 import ClockWidget from './widgets/ClockWidget.vue'
 import BookmarkWidget from './widgets/BookmarkWidget.vue'
@@ -14,26 +14,8 @@ const props = defineProps<{ node: WidgetNode; bookmarks: Bookmark[]; groups: Boo
 // 组件数据变更与书签交互事件。
 const emit = defineEmits<{ update: [node: WidgetNode]; editBookmark: [bookmark: Bookmark]; addBookmark: [groupId?: string] }>()
 
-// 当前时间响应式引用，用于日历排盘。
-const now = ref(new Date())
-let timer: ReturnType<typeof setInterval> | undefined
-
-// 页面可见时校准时间。
-function tick() {
-  if (!document.hidden) now.value = new Date()
-}
-
-onMounted(() => {
-  if (props.node.type === 'calendar') {
-    timer = setInterval(tick, 1000)
-    document.addEventListener('visibilitychange', tick)
-  }
-})
-
-onUnmounted(() => {
-  clearInterval(timer)
-  document.removeEventListener('visibilitychange', tick)
-})
+// 当前时间响应式引用，复用全局时间对齐服务。
+const { now } = useCurrentTime()
 
 // 单书签根据 referenceId 关联真实书签，缺失时优雅回退。
 const bookmark = computed<Bookmark>(() => {

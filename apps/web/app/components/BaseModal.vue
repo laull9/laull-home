@@ -32,7 +32,7 @@ const dialogRef = ref<HTMLDialogElement | null>(null)
 // DOM 更新后同步对话框展开状态。
 watch(() => props.show, async (show) => {
   await nextTick()
-  if (show && dialogRef.value && !dialogRef.value.open) dialogRef.value.show()
+  if (show && dialogRef.value && !dialogRef.value.open) dialogRef.value.showModal()
   if (!show && dialogRef.value?.open) dialogRef.value.close()
 }, { immediate: true })
 

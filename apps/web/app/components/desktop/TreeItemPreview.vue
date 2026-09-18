@@ -1,28 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import type { TreeItem } from './treeCatalog'
 
 // 微缩组件预览接收组件项定义与可选示例数据。
 defineProps<{ item: TreeItem }>()
 
-// 实时响应式时间，保持微缩时钟动态运转。
-const now = ref(new Date())
-let timer: ReturnType<typeof setInterval> | undefined
-
-// 页面可见时动态对齐时间。
-function updateTime() {
-  if (!document.hidden) now.value = new Date()
-}
-
-onMounted(() => {
-  timer = setInterval(updateTime, 1000)
-  document.addEventListener('visibilitychange', updateTime)
-})
-
-onUnmounted(() => {
-  clearInterval(timer)
-  document.removeEventListener('visibilitychange', updateTime)
-})
+// 实时响应式时间，保持微缩时钟与全局主时钟严格对齐运转。
+const { now } = useCurrentTime()
 
 // 格式化当前时分秒。
 const timeString = computed(() => {

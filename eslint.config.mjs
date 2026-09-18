@@ -31,6 +31,7 @@ export default ts.config(
         'atob', 'btoa', 'TextEncoder', 'TextDecoder', 'HTMLInputElement',
         'HTMLAnchorElement', 'HTMLDialogElement', 'HTMLImageElement', 'HTMLTextAreaElement', 'Event', 'BeforeUnloadEvent',
         'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+        'requestAnimationFrame', 'useCurrentTime', 'useHead',
       ].map(name => [name, 'readonly'])),
     },
   },

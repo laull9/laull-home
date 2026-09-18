@@ -217,5 +217,36 @@ test('胶囊信息卡书签支持 1 列紧凑并排与持久化', async () => {
   expect(fetched.nodes[1]?.layouts.desktop.w).toBe(1)
 })
 
+test('智能多向避让算法：支持向左退让、垂直避让与就近换行', () => {
+  // 1. 向左推挤（左侧有空位 (0,0)，节点原在 (1,0)，新组件插入 (1,0) 且向左推，原节点优先向左退让到 (0,0)）
+  const activeLeft = newWidget('bookmark', 'active-left')
+  activeLeft.layouts.desktop = { x: 1, y: 0, w: 1, h: 1, pinned: true }
+  const existingNode = newWidget('bookmark', 'existing-node')
+  existingNode.layouts.desktop = { x: 1, y: 0, w: 1, h: 1, pinned: true }
+  const leftRes = arrangeNodes([activeLeft, existingNode], 'desktop', { dx: -30, dy: 0 })
+  expect(leftRes.get('active-left')).toEqual({ x: 1, y: 0, w: 1, h: 1, pinned: true })
+  expect(leftRes.get('existing-node')).toEqual({ x: 0, y: 0, w: 1, h: 1, pinned: true })
+
+  // 2. 垂直向下推挤（节点原在 (2,0)，新组件插入 (2,0) 且向下推，原节点优先垂直同列下移到 (2,1)）
+  const activeDown = newWidget('bookmark', 'active-down')
+  activeDown.layouts.desktop = { x: 2, y: 0, w: 1, h: 1, pinned: true }
+  const nodeAt20 = newWidget('bookmark', 'node-at-20')
+  nodeAt20.layouts.desktop = { x: 2, y: 0, w: 1, h: 1, pinned: true }
+  const downRes = arrangeNodes([activeDown, nodeAt20], 'desktop', { dx: 0, dy: 40 })
+  expect(downRes.get('active-down')).toEqual({ x: 2, y: 0, w: 1, h: 1, pinned: true })
+  expect(downRes.get('node-at-20')).toEqual({ x: 2, y: 1, w: 1, h: 1, pinned: true })
+
+  // 3. 行末向右推挤智能换行（6 列布局下最后一列 x: 5 被挤开，优先换行到下一行同列 (5,1) 或就近列，而非跳回 (0,1)）
+  const activeRight = newWidget('bookmark', 'active-right')
+  activeRight.layouts.tablet = { x: 5, y: 0, w: 1, h: 1, pinned: true }
+  const edgeNode = newWidget('bookmark', 'edge-node')
+  edgeNode.layouts.tablet = { x: 5, y: 0, w: 1, h: 1, pinned: true }
+  const wrapRes = arrangeNodes([activeRight, edgeNode], 'tablet', { dx: 50, dy: 0 })
+  expect(wrapRes.get('active-right')?.x).toBe(5)
+  const wrappedP = wrapRes.get('edge-node')!
+  expect(wrappedP.y).toBe(1)
+  expect(wrappedP.x).toBeGreaterThanOrEqual(4) // 紧邻就近列，绝不生硬跳回 x: 0
+})
+
 
 

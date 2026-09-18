@@ -123,14 +123,8 @@ onMounted(() => {
   }
 })
 
-// 图片加载成功后动态像素分析。
-function handleImgLoad(event: Event) {
-  const img = event.target as HTMLImageElement
-  if (!img || img.naturalWidth === 0) return
-  if (matchesDarkKeyword(props.name + " " + props.id)) {
-    isDarkIcon.value = true
-    return
-  }
+// 动态分析图标像素明暗度。
+function analyzeImgLuma(img: HTMLImageElement) {
   try {
     const canvas = document.createElement('canvas')
     canvas.width = 16
@@ -154,6 +148,21 @@ function handleImgLoad(event: Event) {
       isDarkIcon.value = true
     }
   } catch { /* 跨域画布安全降级。 */ }
+}
+
+// 图片加载成功后在浏览器空闲调度中执行像素分析。
+function handleImgLoad(event: Event) {
+  const img = event.target as HTMLImageElement
+  if (!img || img.naturalWidth === 0) return
+  if (matchesDarkKeyword(props.name + " " + props.id)) {
+    isDarkIcon.value = true
+    return
+  }
+  if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    window.requestIdleCallback(() => analyzeImgLuma(img), { timeout: 1000 })
+  } else {
+    setTimeout(() => analyzeImgLuma(img), 16)
+  }
 }
 </script>
 

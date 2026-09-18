@@ -135,7 +135,7 @@ describe('认证与设置', () => {
   test('验证字段并以版本号阻止设置覆盖', async () => {
     const { request, login } = await fixture()
     const { cookie } = await login()
-    const setting = { revision: 0, title: '工作台', appearance: 'dark', themeId: 'default', wallpaperType: 'none', wallpaperValue: '', wallpaperAutoRotate: false, wallpaperRotateInterval: 60, activeWallpaperPoolId: null, wallpaperFitMode: 'cover', customCss: 'body { font-size: 14px; }' }
+    const setting = { revision: 0, title: '工作台', appearance: 'dark', themeId: 'default', wallpaperType: 'none', wallpaperValue: '', wallpaperAutoRotate: false, wallpaperRotateInterval: 60, activeWallpaperPoolId: null, wallpaperFitMode: 'cover', customCss: 'body { font-size: 14px; }', allowDragWithoutEdit: true }
     expect((await request('/settings', 'PUT', { ...setting, appearance: 'unknown' }, cookie)).status).toBe(400)
     expect((await request('/settings', 'PUT', { ...setting, customCss: 'a'.repeat(32769) }, cookie)).status).toBe(400)
     const saved = await request('/settings', 'PUT', setting, cookie)
@@ -143,17 +143,26 @@ describe('认证与设置', () => {
     expect(await saved.json()).toEqual({ ...setting, revision: 1, themeConfig: DEFAULT_THEME })
     expect((await request('/settings', 'PUT', setting, cookie)).status).toBe(409)
     expect(await (await request('/settings', 'GET', undefined, cookie)).json()).toEqual({ ...setting, revision: 1, themeConfig: DEFAULT_THEME })
+
+    // 支持关闭非编辑模式拖动并递增版本保存
+    const disabledDragRes = await request('/settings', 'PUT', { ...setting, revision: 1, allowDragWithoutEdit: false }, cookie)
+    expect(disabledDragRes.status).toBe(200)
+    const disabledJson = await disabledDragRes.json()
+    expect(disabledJson.allowDragWithoutEdit).toBe(false)
+    expect(disabledJson.revision).toBe(2)
+    const reloaded = await (await request('/settings', 'GET', undefined, cookie)).json()
+    expect(reloaded.allowDragWithoutEdit).toBe(false)
   })
 
   test('登录尝试计数持久化且窗口结束后恢复', async () => {
     const { db, request } = await fixture()
-    db.insert(loginThrottle).values({ id: 1, attempts: 10, windowEnd: Date.now() + 60_000 })
-      .onConflictDoUpdate({ target: loginThrottle.id, set: { attempts: 10, windowEnd: Date.now() + 60_000 } }).run()
+    db.insert(loginThrottle).values({ ip: '127.0.0.1', attempts: 10, windowEnd: Date.now() + 60_000 })
+      .onConflictDoUpdate({ target: loginThrottle.ip, set: { attempts: 10, windowEnd: Date.now() + 60_000 } }).run()
     const body = { username: 'owner', password: 'wrong-password-123' }
     expect((await request('/auth/login', 'POST', body)).status).toBe(429)
-    db.update(loginThrottle).set({ windowEnd: 0 }).where(eq(loginThrottle.id, 1)).run()
+    db.update(loginThrottle).set({ windowEnd: 0 }).where(eq(loginThrottle.ip, '127.0.0.1')).run()
     expect((await request('/auth/login', 'POST', body)).status).toBe(401)
-    expect(db.select({ attempts: loginThrottle.attempts }).from(loginThrottle).where(eq(loginThrottle.id, 1)).get()!.attempts).toBe(1)
+    expect(db.select({ attempts: loginThrottle.attempts }).from(loginThrottle).where(eq(loginThrottle.ip, '127.0.0.1')).get()!.attempts).toBe(1)
   })
 
   test('空数据库自动生成初始 admin/admin 账号、登录与初始密码提示', async () => {

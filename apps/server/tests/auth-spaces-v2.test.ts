@@ -82,8 +82,8 @@ describe('修改密码与账号恢复', () => {
     const device = await login()
 
     // 触发节流锁定。
-    db.insert(loginThrottle).values({ id: 1, attempts: 10, windowEnd: Date.now() + 600_000 })
-      .onConflictDoUpdate({ target: loginThrottle.id, set: { attempts: 10, windowEnd: Date.now() + 600_000 } }).run()
+    db.insert(loginThrottle).values({ ip: '127.0.0.1', attempts: 10, windowEnd: Date.now() + 600_000 })
+      .onConflictDoUpdate({ target: loginThrottle.ip, set: { attempts: 10, windowEnd: Date.now() + 600_000 } }).run()
     expect((await request('/auth/login', 'POST', { username: 'owner', password: 'wrong-password-123' })).status).toBe(429)
 
     // 执行重置密码。

@@ -232,6 +232,25 @@ export const migrations = [{
       updated_at INTEGER NOT NULL
     ) STRICT;
   `,
+}, {
+  // 迁移版本 11：支持未进入编辑模式时拖动图标链接调整位置（默认开启）。
+  version: 11,
+  // 为 user_settings 增加 allow_drag_without_edit 列，默认值为 1。
+  sql: `
+    ALTER TABLE user_settings ADD COLUMN allow_drag_without_edit INTEGER NOT NULL DEFAULT 1;
+  `,
+}, {
+  // 迁移版本 12：登录限流改为按 IP 分桶独立计数，避免全局锁定。
+  version: 12,
+  // 重建 login_throttle 表以 ip 文本作为主键。
+  sql: `
+    DROP TABLE IF EXISTS login_throttle;
+    CREATE TABLE login_throttle (
+      ip TEXT PRIMARY KEY,
+      attempts INTEGER NOT NULL,
+      window_end INTEGER NOT NULL
+    ) STRICT;
+  `,
 }]
 
 

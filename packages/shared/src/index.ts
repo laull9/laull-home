@@ -45,6 +45,8 @@ export const settingsSchema = Type.Object({
   themeConfig: Type.Optional(themeConfigSchema),
   // 自定义 CSS 覆盖样式规则。
   customCss: Type.Optional(Type.String({ maxLength: 32768 })),
+  // 未进入编辑模式时是否允许拖动图标链接改位置（默认开启）。
+  allowDragWithoutEdit: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false })
 
 // 设置接口使用同一份运行时结构推导类型。

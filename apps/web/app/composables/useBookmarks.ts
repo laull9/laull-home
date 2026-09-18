@@ -22,8 +22,6 @@ export function useBookmarks() {
   // 读取指定空间下的分组与书签。
   async function loadData(spaceId = "default") {
     const requestVersion = ++readVersion.value
-    groups.value = []
-    bookmarks.value = []
     loading.value = true
     error.value = ""
     try {

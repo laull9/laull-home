@@ -41,7 +41,6 @@ const contextItems = [
 
 // 拖拽文件夹条目向外移出。
 function handleItemDragStart(event: DragEvent, item: Bookmark) {
-  if (!props.editing) return
   isDraggingOut.value = true
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
@@ -56,7 +55,6 @@ function handleItemDragEnd() {
 
 // 悬停在容器视窗上方准备拖入。
 function handleViewportDragOver(event: DragEvent) {
-  if (!props.editing) return
   event.preventDefault()
   if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
   isDragOver.value = true
@@ -69,7 +67,6 @@ function handleViewportDragLeave() {
 
 // 释放外部条目进入当前文件夹。
 async function handleViewportDrop(event: DragEvent) {
-  if (!props.editing) return
   event.preventDefault()
   isDragOver.value = false
   const text = event.dataTransfer?.getData('text/plain') || ''
@@ -229,7 +226,7 @@ onUnmounted(() => {
                 class="grid-item-card"
                 :title="item.title"
                 data-folder-item="true"
-                :draggable="editing"
+                draggable="true"
                 @dragstart="handleItemDragStart($event, item)"
                 @dragend="handleItemDragEnd"
                 @click="onItemClick($event, item)"
@@ -350,7 +347,7 @@ onUnmounted(() => {
 .btn-quick-add:hover { background: var(--lh-surface-hover); }
 
 /* 物理弹簧缩放动画 */
-.container-zoom-enter-active, .container-zoom-leave-active { transition: opacity 0.22s ease, backdrop-filter 0.22s ease; }
+.container-zoom-enter-active, .container-zoom-leave-active { transition: opacity 0.22s ease; }
 .container-zoom-enter-active .container-viewport { transition: transform 0.26s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.22s ease; }
 .container-zoom-leave-active .container-viewport { transition: transform 0.18s ease-in, opacity 0.18s ease; }
 .container-zoom-enter-from, .container-zoom-leave-to { opacity: 0; }

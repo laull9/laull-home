@@ -48,8 +48,8 @@ export function isTrustedOrigin(originHeader: string | null | undefined, referer
       // 忽略格式错误的 Referer。
     }
   }
-  // 缺失来源头在内部代理或同源安全场景下放行，跨站攻击必定携带 Origin。
-  if (!source) return true
+  // 写操作必须携带来源头，GET/HEAD/OPTIONS 缺失时仍在安全范围内放行。
+  if (!source) return false
   // 与明确配置的来源完全一致。
   if (source === configOrigin) return true
 
@@ -98,8 +98,12 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
         const origin = request.headers.get('origin')
         const referer = request.headers.get('referer')
-        if (!isTrustedOrigin(origin, referer, config.origin)) {
-          return status(403, { code: 'FORBIDDEN_ORIGIN', message: '请求来源不受信任' })
+        const hasAuthHeader = Boolean(request.headers.get('authorization'))
+        // 纯 API 或 MCP 客户端使用 Authorization 凭据，在无 Origin/Referer 时免受 Cookie CSRF 约束。
+        if (!hasAuthHeader || origin || referer) {
+          if (!isTrustedOrigin(origin, referer, config.origin)) {
+            return status(403, { code: 'FORBIDDEN_ORIGIN', message: '请求来源不受信任' })
+          }
         }
       }
     })
@@ -126,9 +130,13 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       db.select().from(schemaMigrations).limit(1).all()
       return { status: 'ok' as const }
     })
-    .post('/auth/login', async ({ body, cookie, request }) => {
+    .post('/auth/login', async ({ body, cookie, request, server }) => {
       const userAgent = request.headers.get('user-agent') ?? ''
-      const result = await auth.login(body.username, body.password, userAgent)
+      // 从请求中提取客户端 IP 用于分桶限流。
+      const clientIp = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+        || server?.requestIP(request)?.address
+        || '127.0.0.1'
+      const result = await auth.login(body.username, body.password, userAgent, clientIp)
       // 重登轮换当前设备的旧 Session。
       if (typeof cookie.lh_session!.value === 'string') auth.logout(cookie.lh_session!.value)
       cookie.lh_session!.set({ ...cookieOptions, value: result.token, expires: new Date(result.expiresAt) })

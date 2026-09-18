@@ -61,14 +61,16 @@ export const userSettings = sqliteTable('user_settings', {
   activeWallpaperPoolId: text('active_wallpaper_pool_id'),
   // 全局默认壁纸填充模式。
   wallpaperFitMode: text('wallpaper_fit_mode').notNull().default('cover'),
+  // 未进入编辑模式时是否允许拖动图标链接改位置：0 关闭，1 开启。
+  allowDragWithoutEdit: integer('allow_drag_without_edit').notNull().default(1),
   // 更新时间戳。
   updatedAt: integer('updated_at').notNull(),
 })
 
-// 登录节流记录表定义。
+// 登录节流记录表定义，按来源 IP 分桶独立限流。
 export const loginThrottle = sqliteTable('login_throttle', {
-  // 固定编号 1 保持单条记录。
-  id: integer('id').primaryKey(),
+  // 来源 IP 地址作为分桶主键。
+  ip: text('ip').primaryKey(),
   // 当前时间窗口内失败尝试次数。
   attempts: integer('attempts').notNull(),
   // 窗口截止时间戳。

@@ -71,8 +71,82 @@ export function newWidget(type: WidgetNode['type'], id: string, variant?: string
     ...(type === 'bookmark' ? { style: { opacity: 100, blur: 0, radius: 16, padding: 4, border: 0, color: '', background: '', frameless: true } } : {}),
     layouts: { desktop: { x: 0, y: 0, w: defaultW, h: entry.h, pinned: false } } }
 }
-// 固定节点优先占位，碰撞与越界自动寻找下一处空位。
-export function arrangeNodes(nodes: WidgetNode[], breakpoint: Breakpoint): Map<string, Placement> {
+// 智能多向避让寻找空位：支持上下左右多向退让与平滑智能换行。
+function findBestPlacement(
+  targetX: number,
+  targetY: number,
+  w: number,
+  h: number,
+  columns: number,
+  occupied: Set<string>,
+  vector?: { dx: number; dy: number },
+): Placement {
+  const fitsAt = (cx: number, cy: number) => {
+    if (cx < 0 || cx + w > columns || cy < 0) return false
+    for (let y = cy; y < cy + h; y++) {
+      for (let x = cx; x < cx + w; x++) {
+        if (occupied.has(x + ':' + y)) return false
+      }
+    }
+    return true
+  }
+
+  if (fitsAt(targetX, targetY)) return { x: targetX, y: targetY, w, h, pinned: true }
+
+  let bestX = targetX, bestY = targetY, minCost = Infinity
+  const dirX = vector ? (vector.dx > 6 ? 1 : vector.dx < -6 ? -1 : 0) : 0
+  const dirY = vector ? (vector.dy > 6 ? 1 : vector.dy < -6 ? -1 : 0) : 0
+
+  // 围绕目标位置由近及远进行多向加权搜索。
+  const maxY = Math.max(targetY + 12, 16)
+  for (let cy = Math.max(0, targetY - 4); cy <= maxY; cy++) {
+    for (let cx = 0; cx <= columns - w; cx++) {
+      if (!fitsAt(cx, cy)) continue
+      const dX = cx - targetX, dY = cy - targetY
+      const absDX = Math.abs(dX), absDY = Math.abs(dY)
+
+      // 基础距离代价：水平位移比垂直位移更平缓。
+      let cost = absDX * 2 + absDY * 3
+
+      // 方向推进加权：顺应拖拽推挤方向降低代价，反方向增加代价。
+      if (dirX !== 0) {
+        if (Math.sign(dX) === dirX) cost -= 1.8
+        else if (dX !== 0) cost += 2.2
+      }
+      if (dirY !== 0) {
+        if (Math.sign(dY) === dirY) cost -= 2.2
+        else if (dY !== 0) cost += 2.5
+      }
+
+      // 智能换行：当下移一行时，优先保持在同列或相邻列，避免跳回行首。
+      if (dY > 0 && absDX <= 1) cost -= 1.2
+
+      if (cost < minCost) {
+        minCost = cost
+        bestX = cx
+        bestY = cy
+        if (cost <= 0.8) break
+      }
+    }
+    if (minCost <= 0.8) break
+  }
+
+  // 兜底方案：在有限范围内未找到时顺序找下一个空位。
+  if (minCost === Infinity) {
+    let px = targetX, py = targetY
+    while (!fitsAt(px, py)) { px++; if (px + w > columns) { px = 0; py++ } }
+    bestX = px
+    bestY = py
+  }
+  return { x: bestX, y: bestY, w, h, pinned: true }
+}
+
+// 固定节点优先占位，碰撞与越界自动进行智能多向避让与就近换行。
+export function arrangeNodes(
+  nodes: WidgetNode[],
+  breakpoint: Breakpoint,
+  vector?: { dx: number; dy: number },
+): Map<string, Placement> {
   const columns = BREAKPOINTS[breakpoint]
   const occupied = new Set<string>()
   const result = new Map<string, Placement>()
@@ -83,20 +157,19 @@ export function arrangeNodes(nodes: WidgetNode[], breakpoint: Breakpoint): Map<s
     const p = { ...(saved ?? node.layouts.desktop) }
     // 胶囊卡片支持 1 列紧凑并排与 2 列完整横向排版。
     p.w = Math.max(1, Math.min(columns, p.w))
-    p.w = Math.min(columns, p.w)
     p.x = Math.min(columns - p.w, p.x)
     if (!saved || !p.pinned) { p.x = 0; p.y = 0 }
     const stack = node.stackId && stacks.get(node.stackId)
     if (stack && stack.w === p.w && stack.h === p.h) { result.set(node.id, { ...stack }); continue }
-    // 检查完整矩形，防止大卡片覆盖小卡片。
-    const fits = () => {
-      for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) if (occupied.has(x + ':' + y)) return false
-      return true
+
+    const placed = findBestPlacement(p.x, p.y, p.w, p.h, columns, occupied, vector)
+    for (let y = placed.y; y < placed.y + placed.h; y++) {
+      for (let x = placed.x; x < placed.x + placed.w; x++) {
+        occupied.add(x + ':' + y)
+      }
     }
-    while (!fits()) { p.x++; if (p.x + p.w > columns) { p.x = 0; p.y++ } }
-    for (let y = p.y; y < p.y + p.h; y++) for (let x = p.x; x < p.x + p.w; x++) occupied.add(x + ':' + y)
-    result.set(node.id, p)
-    if (node.stackId) stacks.set(node.stackId, p)
+    result.set(node.id, placed)
+    if (node.stackId) stacks.set(node.stackId, placed)
   }
   return result
 }

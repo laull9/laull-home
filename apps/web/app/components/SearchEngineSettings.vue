@@ -188,55 +188,61 @@ async function handleConfirmDelete() {
       </button>
     </div>
 
-    <p v-if="successMessage" class="info-text">{{ successMessage }}</p>
-    <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+    <transition name="fade">
+      <p v-if="successMessage" class="info-text">{{ successMessage }}</p>
+    </transition>
+    <transition name="fade">
+      <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>
+    </transition>
 
     <!-- 新增搜索引擎表单 -->
-    <div v-if="showAddForm" class="add-box">
-      <div class="add-box-header">
-        <span class="add-box-title">添加自定义搜索引擎</span>
-        <div v-if="newTemplate" class="preview-badge">
-          <EngineIcon :name="newName || '预览'" :url="newTemplate" :size="20" />
-          <span class="preview-text">图标预览</span>
+    <transition name="form-expand">
+      <div v-if="showAddForm" class="add-box">
+        <div class="add-box-header">
+          <span class="add-box-title">添加自定义搜索引擎</span>
+          <div v-if="newTemplate" class="preview-badge">
+            <EngineIcon :name="newName || '预览'" :url="newTemplate" :size="20" />
+            <span class="preview-text">图标预览</span>
+          </div>
+        </div>
+        <div class="field">
+          <label>引擎名称</label>
+          <input v-model="newName" type="text" placeholder="例如 GitHub" required>
+        </div>
+        <div class="field">
+          <label>搜索模板（须含 %s）</label>
+          <div class="template-row">
+            <input v-model="newTemplate" type="text" placeholder="例如 https://github.com/search?q=%s" required>
+            <button
+              type="button"
+              class="btn-action"
+              :disabled="!canFetchNewIcon || isFetchingNewIcon"
+              @click="handleFetchNewIcon"
+            >
+              {{ isFetchingNewIcon ? "拉取中..." : "拉取图标" }}
+            </button>
+          </div>
+        </div>
+        <div class="field">
+          <label>搜索建议地址模板（可选，含 %s）</label>
+          <input v-model="newSuggestionUrl" type="text" placeholder="例如 https://api.bing.com/osjson.aspx?query=%s">
+        </div>
+        <div class="field">
+          <label>快捷 Bang（可选）</label>
+          <input v-model="newBang" type="text" placeholder="例如 gh（用于 !gh 搜索）">
+        </div>
+        <div class="checkbox-row">
+          <label>
+            <input v-model="newIsDefault" type="checkbox">
+            设为默认搜索引擎
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn-secondary" @click="showAddForm = false">取消</button>
+          <button type="button" class="btn" @click="handleCreateEngine">保存引擎</button>
         </div>
       </div>
-      <div class="field">
-        <label>引擎名称</label>
-        <input v-model="newName" type="text" placeholder="例如 GitHub" required>
-      </div>
-      <div class="field">
-        <label>搜索模板（须含 %s）</label>
-        <div class="template-row">
-          <input v-model="newTemplate" type="text" placeholder="例如 https://github.com/search?q=%s" required>
-          <button
-            type="button"
-            class="btn-action"
-            :disabled="!canFetchNewIcon || isFetchingNewIcon"
-            @click="handleFetchNewIcon"
-          >
-            {{ isFetchingNewIcon ? "拉取中..." : "拉取图标" }}
-          </button>
-        </div>
-      </div>
-      <div class="field">
-        <label>搜索建议地址模板（可选，含 %s）</label>
-        <input v-model="newSuggestionUrl" type="text" placeholder="例如 https://api.bing.com/osjson.aspx?query=%s">
-      </div>
-      <div class="field">
-        <label>快捷 Bang（可选）</label>
-        <input v-model="newBang" type="text" placeholder="例如 gh（用于 !gh 搜索）">
-      </div>
-      <div class="checkbox-row">
-        <label>
-          <input v-model="newIsDefault" type="checkbox">
-          设为默认搜索引擎
-        </label>
-      </div>
-      <div class="form-actions">
-        <button type="button" class="btn-secondary" @click="showAddForm = false">取消</button>
-        <button type="button" class="btn" @click="handleCreateEngine">保存引擎</button>
-      </div>
-    </div>
+    </transition>
 
     <!-- 引擎列表 -->
     <ul class="engine-list">
@@ -396,4 +402,22 @@ async function handleConfirmDelete() {
 .engine-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
 .info-text { color: var(--lh-success); font-size: 13px; margin: 6px 0 12px; }
 .error-text { color: var(--lh-danger); font-size: 13px; margin: 6px 0 12px; }
+.form-expand-enter-active, .form-expand-leave-active {
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+.form-expand-enter-from, .form-expand-leave-to {
+  opacity: 0;
+  max-height: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  margin-bottom: 0;
+  transform: translateY(-6px);
+}
+.form-expand-enter-to, .form-expand-leave-from {
+  opacity: 1;
+  max-height: 500px;
+}
+.fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease; }
+.fade-enter-from, .fade-leave-to { opacity: 0; }
 </style>

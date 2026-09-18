@@ -30,7 +30,6 @@ function onItemClick(event: MouseEvent, item: Bookmark) {
 }
 // 拖动文件夹内图标移出到桌面。
 function handleItemDragStart(event: DragEvent, item: Bookmark) {
-  if (!props.editing) return
   event.stopPropagation()
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
@@ -65,7 +64,7 @@ function handleRootClick(event: MouseEvent) {
         class="launchpad-item"
         :title="item.title"
         data-folder-item="true"
-        :draggable="editing"
+        draggable="true"
         @dragstart="handleItemDragStart($event, item)"
         @click="onItemClick($event, item)"
       >

@@ -68,18 +68,21 @@ const emit = defineEmits<{
 
 <style scoped>
 .edit-mode-bar {
-  position: sticky;
+  position: fixed;
   top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 50;
   max-width: 980px;
   width: calc(100% - 32px);
-  margin: 16px auto 0 auto;
+  margin: 0;
   padding: 8px 16px;
   background: var(--lh-surface);
   border: 1px solid var(--lh-border);
   border-radius: var(--lh-radius-full);
   box-shadow: var(--lh-shadow-dropdown);
   backdrop-filter: blur(var(--lh-blur));
+  -webkit-backdrop-filter: blur(var(--lh-blur));
   display: flex;
   align-items: center;
   justify-content: space-between;

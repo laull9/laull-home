@@ -23,27 +23,30 @@ let stopTheme: (() => void) | undefined
 onUnmounted(() => stopTheme?.())
 onMounted(async () => {
   stopTheme = setupSystemThemeListener()
+  document.documentElement.classList.add('preload-no-transition')
   try {
-    await refresh()
-  } catch {
-    // 允许访客状态访问。
-  }
-  try {
-    const res = await $api.settings.get()
-    if (res.data) {
-      applyTheme(res.data)
+    const [, res] = await Promise.allSettled([
+      refresh().catch(() => {}),
+      $api.settings.get(),
+    ])
+    if (res.status === 'fulfilled' && res.value?.data) {
+      applyTheme(res.value.data)
       setupAutoRotate()
+    } else {
+      // 访客使用默认设置。
+      applyTheme({
+        revision: 0,
+        title: '我的主页',
+        appearance: 'system',
+        themeId: 'default',
+        wallpaperType: 'none',
+        wallpaperValue: '',
+        customCss: '',
+      })
     }
-  } catch {
-    // 访客使用默认设置。
-    applyTheme({
-      revision: 0,
-      title: '我的主页',
-      appearance: 'system',
-      themeId: 'default',
-      wallpaperType: 'none',
-      wallpaperValue: '',
-      customCss: '',
+  } finally {
+    requestAnimationFrame(() => {
+      document.documentElement.classList.remove('preload-no-transition')
     })
   }
 })
@@ -61,6 +64,11 @@ onMounted(async () => {
 
 <style>
 @import './assets/themes.css';
+
+.preload-no-transition,
+.preload-no-transition * {
+  transition: none !important;
+}
 
 :root {
   --lh-bg: #f8fafc;

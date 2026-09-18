@@ -18,6 +18,8 @@ const { applyTheme } = useTheme()
 
 // 主页标题。
 const pageTitle = ref("我的主页")
+// 非编辑模式下是否允许拖动图标链接。
+const allowDragWithoutEdit = ref(true)
 
 // 编辑模式开关状态。
 const isEditMode = ref(false)
@@ -116,6 +118,9 @@ onMounted(async () => {
     const res = await $api.settings.get()
     if (res.data) {
       pageTitle.value = res.data.title
+      if (res.data.allowDragWithoutEdit !== undefined) {
+        allowDragWithoutEdit.value = res.data.allowDragWithoutEdit
+      }
       applyTheme(res.data)
     }
   } catch {
@@ -144,6 +149,9 @@ useDesktopEvents({
       const res = await $api.settings.get()
       if (res.data) {
         pageTitle.value = res.data.title
+        if (res.data.allowDragWithoutEdit !== undefined) {
+          allowDragWithoutEdit.value = res.data.allowDragWithoutEdit
+        }
         applyTheme(res.data)
       }
     } catch {
@@ -296,13 +304,13 @@ function handleResetLayout() {
           v-model:stack-mode="stackMode"
           @start-edit="isEditMode = true"
           @quick-add="quickAdd"
-          :key="activeSpaceId"
           @dirty="canvasDirty = $event"
           @saving="isCanvasSaving = $event"
           @tree-open="isTreeOpen = $event"
           @refresh="loadData(activeSpaceId)"
           :space-id="activeSpaceId"
           :editing="isEditMode"
+          :allow-drag-without-edit="allowDragWithoutEdit"
           :bookmarks="bookmarks"
           :groups="groups"
           @edit-bookmark="handleEditBookmark"
@@ -396,5 +404,5 @@ function handleResetLayout() {
 .error-msg { color: var(--lh-danger); font-size: 13px; margin: 0; }
 .setup-hint { display: flex; flex-direction: column; align-items: center; gap: 12px; margin-top: 16px; color: var(--lh-text-secondary); font-size: 14px; }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s ease, transform 0.2s ease; }
-.fade-enter-from, .fade-leave-to { opacity: 0; transform: translateY(-8px); }
+.fade-enter-from, .fade-leave-to { opacity: 0; transform: translate(-50%, -8px) !important; }
 </style>

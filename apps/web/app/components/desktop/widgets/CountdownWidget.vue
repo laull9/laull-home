@@ -8,9 +8,10 @@ const props = defineProps<{ node: WidgetNode; editing: boolean; width: number }>
 // 原地保存修改。
 const emit = defineEmits<{ update: [node: WidgetNode] }>()
 
-// 获取今天凌晨时间戳。
+// 获取今天凌晨时间戳，依赖全局响应式时间实现跨午夜自动更新。
+const { now } = useCurrentTime()
 const today = computed(() => {
-  const d = new Date()
+  const d = new Date(now.value)
   d.setHours(0, 0, 0, 0)
   return d.getTime()
 })

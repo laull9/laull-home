@@ -22,6 +22,7 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperFitMode: userSettings.wallpaperFitMode,
         customCss: userSettings.customCss,
         themeConfig: userSettings.themeConfig,
+        allowDragWithoutEdit: userSettings.allowDragWithoutEdit,
       }).from(userSettings).where(eq(userSettings.userId, userId)).get()
       return {
         ...row,
@@ -30,6 +31,7 @@ export function createSettingsService(db: AppDatabase) {
         activeWallpaperPoolId: row?.activeWallpaperPoolId ?? null,
         wallpaperFitMode: row?.wallpaperFitMode ?? 'cover',
         themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row?.themeConfig ?? '{}') },
+        allowDragWithoutEdit: row?.allowDragWithoutEdit !== undefined ? Boolean(row.allowDragWithoutEdit) : true,
       } as HomeSettings
     },
     // Drizzle 完成版本比较与写入；冲突返回空值。
@@ -47,6 +49,7 @@ export function createSettingsService(db: AppDatabase) {
         ...(value.wallpaperRotateInterval !== undefined ? { wallpaperRotateInterval: value.wallpaperRotateInterval } : {}),
         ...(value.activeWallpaperPoolId !== undefined ? { activeWallpaperPoolId: value.activeWallpaperPoolId } : {}),
         ...(value.wallpaperFitMode !== undefined ? { wallpaperFitMode: value.wallpaperFitMode } : {}),
+        ...(value.allowDragWithoutEdit !== undefined ? { allowDragWithoutEdit: value.allowDragWithoutEdit ? 1 : 0 } : {}),
         customCss: value.customCss ?? '',
         ...(value.themeConfig ? { themeConfig: JSON.stringify(value.themeConfig) } : {}),
         revision: sql`${userSettings.revision} + 1`,
@@ -66,6 +69,7 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperFitMode: userSettings.wallpaperFitMode,
         customCss: userSettings.customCss,
         themeConfig: userSettings.themeConfig,
+        allowDragWithoutEdit: userSettings.allowDragWithoutEdit,
       }).all()
       const row = rows[0]
       return row ? {
@@ -75,6 +79,7 @@ export function createSettingsService(db: AppDatabase) {
         activeWallpaperPoolId: row.activeWallpaperPoolId ?? null,
         wallpaperFitMode: row.wallpaperFitMode ?? 'cover',
         themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row.themeConfig) },
+        allowDragWithoutEdit: row.allowDragWithoutEdit !== undefined ? Boolean(row.allowDragWithoutEdit) : true,
       } as HomeSettings : null
     },
   }

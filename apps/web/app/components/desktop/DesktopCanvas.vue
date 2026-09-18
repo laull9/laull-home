@@ -3,6 +3,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { arrangeNodes, findBottomRightPlacement, newWidget, BREAKPOINTS, isWidget, scopedCss, type WidgetNode, type Bookmark, type BookmarkGroup, type Breakpoint, type Placement } from '@laull-home/shared'
 import { useWidgetDrag } from '../../composables/useWidgetDrag'
+import { useGridFlip } from '../../composables/useGridFlip'
 import { useDesktop } from '../../composables/useDesktop'
 import { useFolderItemDrag } from '../../composables/useFolderItemDrag'
 import { useCanvasContextMenu } from '../../composables/useCanvasContextMenu'
@@ -16,7 +17,9 @@ import { activeDragTreeItem } from './treeCatalog'
 const selectedBreakpoint = defineModel<'auto' | Breakpoint>('selectedBreakpoint', { default: 'auto' })
 const stackMode = defineModel<boolean>('stackMode', { default: false })
 // 画布只接收已授权的空间内容。
-const props = defineProps<{ spaceId: string; editing: boolean; bookmarks: Bookmark[]; groups: BookmarkGroup[] }>()
+const props = withDefaults(defineProps<{
+  spaceId: string; editing: boolean; bookmarks: Bookmark[]; groups: BookmarkGroup[]; allowDragWithoutEdit?: boolean
+}>(), { allowDragWithoutEdit: true })
 // 复用已有书签编辑与新增操作。
 const emit = defineEmits<{
   editBookmark: [bookmark: Bookmark]; addBookmark: [groupId?: string]; dirty: [value: boolean]
@@ -101,14 +104,7 @@ function addNavigation(bookmark: Bookmark, variant?: string) {
   if (!props.editing) void save()
 }
 // 供外部控制组件树显隐、取消改动与右键菜单。
-defineExpose({
-  addNavigation,
-  openContext,
-  cancelChanges,
-  reload,
-  toggleTree: () => { showComponentTree.value = !showComponentTree.value },
-  openTree: () => { showComponentTree.value = true },
-})
+defineExpose({ addNavigation, openContext, cancelChanges, reload, toggleTree: () => { showComponentTree.value = !showComponentTree.value }, openTree: () => { showComponentTree.value = true } })
 // 自动断点取实际可用宽度。
 function resize() {
   if (selectedBreakpoint.value !== 'auto') { breakpoint.value = selectedBreakpoint.value; return }
@@ -142,17 +138,18 @@ function style(node: WidgetNode) {
     } : {}),
   }
 }
-// 缓存已插入样式的快照，样式无变化时不触碰 DOM 避免页面闪烁。
-let lastWidgetCss = ''
-function installCss() {
-  const css = (data.value?.nodes ?? []).map(node => scopedCss(node.css, '#widget-' + node.id)).filter(Boolean).join('\n')
-  if (css === lastWidgetCss) return
-  lastWidgetCss = css
-  let sheet = document.getElementById('lh-widget-css')
-  if (!sheet) { sheet = document.createElement('style'); sheet.id = 'lh-widget-css'; document.head.appendChild(sheet) }
-  sheet.textContent = css
-}
-watch(data, () => { if (import.meta.client) installCss() }, { deep: true })
+// 组件 Scoped CSS 响应式注入文档头部，避免水合时手动操作 DOM 引起闪变。
+const widgetCssContent = computed(() => {
+  return (data.value?.nodes ?? []).map(node => scopedCss(node.css, '#widget-' + node.id)).filter(Boolean).join('\n')
+})
+useHead({
+  style: [
+    {
+      id: 'lh-widget-css',
+      innerHTML: () => widgetCssContent.value,
+    },
+  ],
+})
 // 滚轮、触屏和按钮使用同一轮播操作。
 function cycle(key: string, direction = 1) {
   const count = data.value?.nodes.filter(node => (node.stackId || node.id) === key).length ?? 1
@@ -160,11 +157,13 @@ function cycle(key: string, direction = 1) {
 }
 // 两类拖动统一提交布局、叠放或书签合并/归组。
 async function commitDrop(id: string, p: Placement, targetId?: string) {
-  if (!props.editing || saving.value || !data.value) return
+  if (saving.value || !data.value) return
+  const isDraggableType = (t?: string) => t === 'bookmark' || t === 'folder'
+  if (!props.editing && (!props.allowDragWithoutEdit || !isDraggableType(data.value.nodes.find(item => item.id === id)?.type))) return
   const node = data.value.nodes.find(item => item.id === id)
   const target = data.value.nodes.find(item => item.id === targetId && item.id !== id)
   if (!node) return
-  if (!stackMode.value && target && node.type === 'bookmark' && target.type === 'bookmark') {
+  if (props.editing && !stackMode.value && target && node.type === 'bookmark' && target.type === 'bookmark') {
     // 两个胶囊信息卡相遇直接在当前行并排变为 1x2，不新建文件夹。
     if (node.variant === 'pill' && target.variant === 'pill') {
       const bp = breakpoint.value
@@ -188,6 +187,7 @@ async function commitDrop(id: string, p: Placement, targetId?: string) {
   }
   if (!stackMode.value && target && node.type === 'bookmark' && target.type === 'folder') {
     let groupId = target.referenceId
+    remove(node.id)
     if (!groupId) {
       const created = await createGroup({ spaceId: props.spaceId, name: target.title || '新建文件夹' })
       if (created) {
@@ -196,13 +196,18 @@ async function commitDrop(id: string, p: Placement, targetId?: string) {
       }
     }
     if (groupId && node.referenceId) {
-      await updateBookmark(node.referenceId, props.spaceId, { groupId })
-      remove(node.id)
-      emit('refresh')
+      try {
+        await updateBookmark(node.referenceId, props.spaceId, { groupId })
+        if (!props.editing) await save()
+        emit('refresh')
+      } catch (cause) {
+        update(node)
+        error.value = cause instanceof Error ? cause.message : '移入文件夹失败'
+      }
     }
     return
   }
-  if (stackMode.value && target) {
+  if (props.editing && stackMode.value && target) {
     const sourceSize = positions.value.get(node.id)!, targetSize = positions.value.get(target.id)!
     if (sourceSize.w !== targetSize.w || sourceSize.h !== targetSize.h) { error.value = '叠放需要相同尺寸'; return }
     const stackId = target.stackId || crypto.randomUUID()
@@ -210,29 +215,44 @@ async function commitDrop(id: string, p: Placement, targetId?: string) {
     update({ ...node, stackId, layouts: JSON.parse(JSON.stringify(target.layouts)) })
     return
   }
-  update({ ...node, stackId: '', layouts: { ...node.layouts, [breakpoint.value]: p } })
+  const bp = breakpoint.value
+  const activeWithP = { ...node, stackId: '', layouts: { ...node.layouts, [bp]: p } }
+  const allNodes = data.value.nodes
+  const reordered = [activeWithP, ...allNodes.filter(n => n.id !== id)]
+  const arrangedMap = arrangeNodes(reordered, bp, drag.vector.value)
+  for (const item of allNodes) {
+    const finalP = arrangedMap.get(item.id)
+    if (finalP) update({ ...item, ...(item.id === id ? { stackId: '' } : {}), layouts: { ...item.layouts, [bp]: { ...finalP } } })
+  }
+  if (!props.editing) void save()
 }
-// 整个组件在编辑模式响应鼠标和触屏拖动。
+// 整个组件在编辑模式或允许的非编辑模式下响应鼠标和触屏拖动。
 const drag = useWidgetDrag({ canvas, nodes: () => data.value?.nodes ?? [], breakpoint,
-  enabled: () => props.editing && !saving.value,
+  enabled: node => !saving.value && (props.editing || (props.allowDragWithoutEdit && (node?.type === 'bookmark' || node?.type === 'folder'))),
   acceptsTarget: (sourceId, targetId) => {
     const source = data.value?.nodes.find(node => node.id === sourceId)
     const target = data.value?.nodes.find(node => node.id === targetId)
-    return !!source && !!target && (
-      stackMode.value ||
-      (source.type === 'bookmark' && target.type === 'bookmark') ||
-      (source.type === 'bookmark' && target.type === 'folder')
-    )
+    if (!source || !target) return false
+    if (!props.editing) return props.allowDragWithoutEdit && source.type === 'bookmark' && target.type === 'folder'
+    return stackMode.value || (source.type === 'bookmark' && (target.type === 'bookmark' || target.type === 'folder'))
   },
   commit: (id, position, targetId) => { void commitDrop(id, position, targetId) } })
-// 其他组件同步展示避让后的排布，避免落点看起来仍被占用。
+// 拖拽时将当前组件置首位优先排布，吸附文件夹或无预览时不产生挤位避让。
 const previewPositions = computed(() => {
-  if (!drag.preview.value || !drag.draggingId.value) return positions.value
-  const nodes = (data.value?.nodes ?? []).map(node => node.id === drag.draggingId.value
-    ? { ...node, stackId: '', layouts: { ...node.layouts, [breakpoint.value]: drag.preview.value! } }
-    : node)
-  return arrangeNodes(nodes, breakpoint.value)
+  if (drag.folderAction.value === 'absorb' || !drag.preview.value || !drag.draggingId.value) return positions.value
+  const all = data.value?.nodes ?? []
+  const cur = all.find(n => n.id === drag.draggingId.value)
+  if (!cur) return positions.value
+  const activeWithPreview = { ...cur, stackId: '', layouts: { ...cur.layouts, [breakpoint.value]: drag.preview.value! } }
+  return arrangeNodes([activeWithPreview, ...all.filter(n => n.id !== drag.draggingId.value)], breakpoint.value, drag.vector.value)
 })
+// 拖拽避让变动时触发平滑非线性动画。
+const { snapshot: snapshotGrid, play: playGridFlip } = useGridFlip(canvas)
+watch(previewPositions, async () => {
+  if (!drag.draggingId.value) return
+  snapshotGrid(drag.draggingId.value)
+  await playGridFlip(drag.draggingId.value)
+}, { flush: 'pre' })
 // 判断组件是否脱离卡片底座。
 function isFrameless(node: WidgetNode) {
   if (node.type === 'bookmark') return node.style?.frameless !== false
@@ -396,23 +416,20 @@ onUnmounted(() => {
   observer?.disconnect()
   document.removeEventListener('keydown', keyboard); document.removeEventListener('keyup', releaseAlt)
   window.removeEventListener('blur', releaseAlt); window.removeEventListener('beforeunload', beforeUnload)
-  document.getElementById('lh-widget-css')?.remove()
 })
 </script>
 
 <template>
   <div class="desktop" @contextmenu="openContext($event)">
-    <div v-if="error" class="canvas-error" role="alert">{{ error }} <button type="button" @click="reload">重新读取</button></div>
-    <p v-if="loading" role="status">正在读取桌面…</p>
+    <div v-if="error" class="canvas-banner canvas-error" role="alert">
+      <span>{{ error }}</span>
+      <button type="button" @click="reload">重新读取</button>
+    </div>
+    <div v-if="loading && (!data || !data.nodes.length)" class="canvas-banner canvas-loading" role="status">正在读取桌面…</div>
     <div v-if="filter" class="filter-bar"><label>筛选书签<input v-model="filter" type="search"></label><button type="button" @click="filter = ''">清除</button></div>
 
     <!-- 实时悬浮组件树抽屉 -->
-    <ComponentTree
-      v-if="editing || showComponentTree"
-      :open="showComponentTree" :templates="data?.templates" :groups="groups" :bookmarks="bookmarks"
-      @add="handleAddWidget" @add-template="add($event.type, $event)" @delete-template="deleteTemplate"
-      @import-widget="importWidget" @close="showComponentTree = false"
-    />
+    <ComponentTree v-if="editing || showComponentTree" :open="showComponentTree" :templates="data?.templates" :groups="groups" :bookmarks="bookmarks" @add="handleAddWidget" @add-template="add($event.type, $event)" @delete-template="deleteTemplate" @import-widget="importWidget" @close="showComponentTree = false" />
     <!-- 主桌面画布网格 -->
     <div ref="canvas" class="desktop-grid" :class="{ editing, 'is-dragging': drag.draggingId.value }" :style="{ '--columns': BREAKPOINTS[breakpoint] }" @dragover="libraryOver" @dragleave="libraryLeave" @drop="drop($event)" @click.capture="drag.click">
       <div v-if="drag.preview.value || libraryPreview" class="drop-preview" :style="{ gridColumn: ((drag.preview.value || libraryPreview)!.x + 1) + ' / span ' + (drag.preview.value || libraryPreview)!.w, gridRow: ((drag.preview.value || libraryPreview)!.y + 1) + ' / span ' + (drag.preview.value || libraryPreview)!.h }" aria-hidden="true" />
@@ -426,6 +443,7 @@ onUnmounted(() => {
           'search-widget': entry.node.type === 'search',
           'frameless-widget': isFrameless(entry.node),
           'dragging-widget': drag.draggingId.value === entry.node.id,
+          'folder-absorb-target': drag.hoverFolderId.value === entry.node.id,
         }"
         :style="style(entry.node)"
         @pointerdown="drag.start($event, entry.node)"
@@ -448,24 +466,52 @@ onUnmounted(() => {
     <ContextMenu :position="contextPosition" :items="contextItems" @close="contextPosition = null" @action="contextAction" />
     <WidgetEditor :node="selected" :breakpoint="breakpoint" :bookmarks="bookmarks" :groups="groups" @close="selected = null" @save="handleEditorSave" @copy="handleEditorCopy" @template="handleEditorTemplate" @remove="handleEditorRemove" />
     <!-- 重新读取确认弹窗 -->
-    <AlertModal
-      :show="showReloadConfirm"
-      title="重新读取布局"
-      message="放弃未保存的布局修改并重新读取？"
-      type="warning"
-      :show-cancel="true"
-      cancel-text="取消"
-      confirm-text="确认重读"
-      @confirm="handleConfirmReload"
-      @close="showReloadConfirm = false"
-    />
+    <AlertModal :show="showReloadConfirm" title="重新读取布局" message="放弃未保存的布局修改并重新读取？" type="warning" :show-cancel="true" cancel-text="取消" confirm-text="确认重读" @confirm="handleConfirmReload" @close="showReloadConfirm = false" />
   </div>
 </template>
 
 <style scoped>
+.desktop { position: relative; width: 100%; }
+.canvas-banner {
+  position: absolute;
+  top: -36px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-radius: var(--lh-radius-full, 9999px);
+  font-size: 12px;
+  box-shadow: var(--lh-shadow-dropdown);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  white-space: nowrap;
+}
+.canvas-error {
+  background: color-mix(in srgb, var(--lh-danger, #ef4444) 12%, var(--lh-surface, #fff));
+  border: 1px solid var(--lh-danger, #ef4444);
+  color: var(--lh-danger, #ef4444);
+}
+.canvas-error button {
+  background: var(--lh-danger, #ef4444);
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 11px;
+  cursor: pointer;
+}
+.canvas-loading {
+  background: color-mix(in srgb, var(--lh-surface, #fff) 85%, transparent);
+  border: 1px solid var(--lh-border);
+  color: var(--lh-text-secondary);
+}
 .desktop-grid { position: relative; display: grid; grid-template-columns: repeat(var(--columns), minmax(0, 1fr)); grid-auto-rows: 96px; gap: var(--lh-grid-gap, 16px); min-height: 220px; width: 100%; }
-.widget { position: relative; min-width: 0; container-type: inline-size; padding: var(--widget-padding, 12px); border: var(--widget-border, 1px) solid var(--lh-border); border-radius: var(--widget-radius, var(--lh-radius-lg)); background: color-mix(in srgb, var(--widget-surface, var(--lh-surface-solid, white)) var(--widget-opacity, var(--lh-surface-opacity, 92%)), transparent); color: var(--widget-text, var(--lh-text)); backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); -webkit-backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-card); transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, color 0.2s, border-radius 0.2s; }
-:root[data-theme="modern"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover { transform: translateY(-2px); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-hover); }
+.widget { position: relative; min-width: 0; container-type: inline-size; padding: var(--widget-padding, 12px); border: var(--widget-border, 1px) solid var(--lh-border); border-radius: var(--widget-radius, var(--lh-radius-lg)); background: color-mix(in srgb, var(--widget-surface, var(--lh-surface-solid, white)) var(--widget-opacity, var(--lh-surface-opacity, 92%)), transparent); color: var(--widget-text, var(--lh-text)); backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); -webkit-backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-card); transition: box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, color 0.2s, border-radius 0.2s; }
+.folder-absorb-target { outline: 2px solid var(--lh-accent) !important; box-shadow: 0 0 14px color-mix(in srgb, var(--lh-accent) 45%, transparent) !important; }
+:root[data-theme="modern"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover { transform: translateY(-2px); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-hover); transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
 :root[data-theme="pixel"] .widget { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 .widget:focus-within { z-index: 5; }
 .search-widget { container-type: normal; z-index: 4; display: flex; align-items: center; padding: 0 !important; border: 0 !important; background: transparent !important; box-shadow: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }

@@ -242,6 +242,8 @@ describe("Favicon 出站限制与 SSRF 防护", () => {
     expect(isPrivateIp("172.20.0.1")).toBe(true)
     expect(isPrivateIp("::1")).toBe(true)
     expect(isPrivateIp("8.8.8.8")).toBe(false)
+    expect(isPrivateIp("198.18.0.1")).toBe(false)
+    expect(isPrivateIp("198.51.100.1")).toBe(true)
 
     await expect(assertSafeOutboundUrl("http://127.0.0.1:8080")).rejects.toThrow("内网")
     await expect(assertSafeOutboundUrl("http://localhost:3000")).rejects.toThrow()

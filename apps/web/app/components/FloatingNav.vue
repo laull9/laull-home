@@ -40,7 +40,7 @@ async function handleRotateWallpaper() {
       tipTimer = setTimeout(() => { rotateTip.value = '' }, 2500)
     }
   } finally {
-    setTimeout(() => { isRotating.value = false }, 400)
+    setTimeout(() => { isRotating.value = false }, 500)
   }
 }
 
@@ -247,9 +247,13 @@ onUnmounted(() => {
   z-index: 110;
 }
 
+@keyframes rotate-once {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .is-rotating {
-  transform: rotate(180deg);
-  transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  animation: rotate-once 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .fab-button {

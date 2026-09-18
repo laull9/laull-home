@@ -1,29 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { computed } from 'vue'
 import type { WidgetNode } from '@laull-home/shared'
 import ClockAnalog from './clock/ClockAnalog.vue'
 
 // 时钟组件接收配置节点与当前卡片网格宽度。
 const props = defineProps<{ node: WidgetNode; width: number }>()
 
-// 当前响应式时间对象。
-const now = ref(new Date())
-let timer: ReturnType<typeof setInterval> | undefined
-
-// 页面可见时更新秒针走时，休眠时暂停。
-function tick() {
-  if (!document.hidden) now.value = new Date()
-}
-
-onMounted(() => {
-  timer = setInterval(tick, 1000)
-  document.addEventListener('visibilitychange', tick)
-})
-
-onUnmounted(() => {
-  clearInterval(timer)
-  document.removeEventListener('visibilitychange', tick)
-})
+// 复用全局统一对齐的响应式时间，避免多时钟实例各自运行定时器。
+const { now } = useCurrentTime()
 
 // 按配置时区与 12/24 小时制拆分时间各部分。
 const timeParts = computed(() => {

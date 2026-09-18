@@ -6,15 +6,21 @@ const props = defineProps<{ position: { x: number; y: number } | null; items: { 
 const emit = defineEmits<{ close: []; action: [id: string] }>()
 const menu = ref<HTMLElement | null>(null)
 const location = ref({ left: '0px', top: '0px' })
+const isVisible = ref(false)
 let previous: HTMLElement | null = null
 // 菜单显示后按真实尺寸限制在视口内，容器承接焦点以便监听键盘。
 watch(() => props.position, async position => {
-  if (!position) return
+  if (!position) {
+    isVisible.value = false
+    return
+  }
+  isVisible.value = false
   previous = document.activeElement as HTMLElement | null
   location.value = { left: position.x + 'px', top: position.y + 'px' }
   await nextTick()
   const rect = menu.value?.getBoundingClientRect()
   location.value = { left: Math.max(8, Math.min(position.x, window.innerWidth - (rect?.width ?? 220) - 8)) + 'px', top: Math.max(8, Math.min(position.y, window.innerHeight - (rect?.height ?? 200) - 8)) + 'px' }
+  isVisible.value = true
   menu.value?.focus()
 })
 // 关闭时把键盘焦点交还触发位置。
@@ -39,7 +45,7 @@ onUnmounted(() => { document.removeEventListener('pointerdown', outside); window
 </script>
 
 <template>
-  <Teleport to="body"><div v-if="position" ref="menu" class="context-menu" role="menu" tabindex="-1" :style="location" @keydown="keyboard" @contextmenu.prevent>
+  <Teleport to="body"><div v-if="position" ref="menu" class="context-menu" role="menu" tabindex="-1" :style="{ ...location, visibility: isVisible ? 'visible' : 'hidden' }" @keydown="keyboard" @contextmenu.prevent>
     <button v-for="item in items" :key="item.id" type="button" role="menuitem" @click="close(); emit('action', item.id)">{{ item.label }}</button>
   </div></Teleport>
 </template>
