@@ -25,7 +25,6 @@ const formUrl = ref("")
 const formIconUrl = ref("")
 const formGroupId = ref("")
 const formVariant = ref("")
-const formIsPublic = ref(true)
 const fetchingIcon = ref(false)
 const errorMessage = ref("")
 const submitting = ref(false)
@@ -40,13 +39,11 @@ watch(() => props.show, (showing) => {
     formUrl.value = props.editingBookmark.url
     formIconUrl.value = props.editingBookmark.iconUrl
     formGroupId.value = props.editingBookmark.groupId ?? ""
-    formIsPublic.value = props.editingBookmark.isPublic
   } else {
     formTitle.value = ""
     formUrl.value = ""
     formIconUrl.value = ""
     formGroupId.value = props.targetGroupId ?? ""
-    formIsPublic.value = true
   }
 })
 
@@ -101,7 +98,6 @@ async function handleSubmit() {
         title: formTitle.value.trim(),
         url,
         iconUrl: formIconUrl.value.trim(),
-        isPublic: formIsPublic.value,
       })
     } else {
       saved = await createBookmark(props.currentSpaceId, {
@@ -110,7 +106,6 @@ async function handleSubmit() {
         title: formTitle.value.trim(),
         url,
         iconUrl: formIconUrl.value.trim(),
-        isPublic: formIsPublic.value,
       })
     }
     const isFolderAdd = Boolean(props.targetGroupId || effectiveGroupId)
@@ -190,13 +185,6 @@ async function handleSubmit() {
           >
           <input v-model="formIconUrl" type="text" placeholder="输入图标地址或使用上方探测">
         </div>
-      </div>
-
-      <div v-if="currentSpaceId === 'default'" class="checkbox-field">
-        <label>
-          <input v-model="formIsPublic" type="checkbox">
-          公开此书签（未登录访客可见）
-        </label>
       </div>
 
       <p v-if="errorMessage" class="error-text">{{ errorMessage }}</p>

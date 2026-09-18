@@ -159,13 +159,28 @@ useDesktopEvents({
     }
   },
   onWidgetUpdated: async () => {
-    if (!canvasDirty.value && !isEditMode.value) {
-      await loadData(activeSpaceId.value)
-      desktopCanvas.value?.reload()
-    }
+    await loadData(activeSpaceId.value)
   },
   onLayoutUpdated: async () => {
     if (!canvasDirty.value && !isEditMode.value) {
+      desktopCanvas.value?.reload()
+    }
+  },
+  onReconnect: async () => {
+    try {
+      const res = await $api.settings.get()
+      if (res.data) {
+        pageTitle.value = res.data.title
+        if (res.data.allowDragWithoutEdit !== undefined) {
+          allowDragWithoutEdit.value = res.data.allowDragWithoutEdit
+        }
+        applyTheme(res.data)
+      }
+    } catch {
+      // 忽略拉取错误
+    }
+    if (!canvasDirty.value && !isEditMode.value) {
+      await loadData(activeSpaceId.value)
       desktopCanvas.value?.reload()
     }
   },

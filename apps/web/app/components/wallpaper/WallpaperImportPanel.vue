@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
 import type { WallpaperItem } from '@laull-home/shared'
 import { useWallpapers } from '../../composables/useWallpapers'
 
@@ -8,7 +9,7 @@ const emit = defineEmits<{
   (e: 'openBatch'): void
 }>()
 
-const { addWallpaper, uploadWallpaper } = useWallpapers()
+const { addWallpaper, uploadWallpaper, quota, fetchQuota } = useWallpapers()
 
 // 外部 URL 导入表单字段。
 const importUrl = ref('')
@@ -20,6 +21,30 @@ const isSubmittingUrl = ref(false)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const uploadError = ref('')
 const isUploading = ref(false)
+
+// 格式化展示已用配额文本。
+const quotaText = computed(() => {
+  if (!quota.value) return ''
+  const usedMb = (quota.value.usedBytes / (1024 * 1024)).toFixed(1)
+  const totalMb = Math.round(quota.value.totalBytes / (1024 * 1024))
+  return `${usedMb}MB / ${totalMb}MB (${quota.value.usedCount}/${quota.value.maxCount} 张)`
+})
+
+// 配额使用百分比。
+const quotaPercent = computed(() => {
+  if (!quota.value || quota.value.totalBytes === 0) return 0
+  return Math.min(100, Math.round((quota.value.usedBytes / quota.value.totalBytes) * 100))
+})
+
+// 是否已达到配额上限。
+const isQuotaFull = computed(() => {
+  if (!quota.value) return false
+  return quota.value.usedCount >= quota.value.maxCount || quota.value.usedBytes >= quota.value.totalBytes
+})
+
+onMounted(() => {
+  if (!quota.value) void fetchQuota()
+})
 
 // 唤起本地文件选择。
 function triggerFileInput() {
@@ -88,7 +113,9 @@ async function handleAddUrl() {
       <button
         type="button"
         class="btn-upload"
-        :disabled="isUploading"
+        :class="{ 'is-disabled': isQuotaFull }"
+        :disabled="isUploading || isQuotaFull"
+        :title="isQuotaFull ? '图库存储配额已满，请先清理图片' : '选择本地图片上传'"
         @click="triggerFileInput"
       >
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -96,7 +123,7 @@ async function handleAddUrl() {
           <polyline points="17 8 12 3 7 8" />
           <line x1="12" y1="3" x2="12" y2="15" />
         </svg>
-        <span>{{ isUploading ? '正在上传...' : '本地图片上传' }}</span>
+        <span>{{ isUploading ? '正在上传...' : isQuotaFull ? '配额已满' : '本地图片上传' }}</span>
       </button>
 
       <!-- 批量导入 -->
@@ -137,6 +164,22 @@ async function handleAddUrl() {
         </button>
       </form>
     </div>
+
+    <!-- 配额使用进度展示 -->
+    <div v-if="quota" class="quota-container">
+      <div class="quota-info">
+        <span class="quota-label">图库本地存储配额</span>
+        <span class="quota-stat" :class="{ 'is-warn': quotaPercent >= 80, 'is-full': isQuotaFull }">{{ quotaText }}</span>
+      </div>
+      <div class="quota-bar-track">
+        <div
+          class="quota-bar-fill"
+          :class="{ 'is-warn': quotaPercent >= 80, 'is-full': isQuotaFull }"
+          :style="{ width: `${quotaPercent}%` }"
+        />
+      </div>
+    </div>
+
     <p v-if="uploadError" class="error-text">{{ uploadError }}</p>
     <p v-if="importError" class="error-text">{{ importError }}</p>
   </div>
@@ -253,5 +296,65 @@ async function handleAddUrl() {
   color: #ef4444;
   font-size: 12px;
   margin: 4px 0 0 0;
+}
+
+.btn-upload.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  border-color: var(--lh-border);
+}
+
+.quota-container {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--lh-border);
+}
+
+.quota-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 11px;
+  margin-bottom: 5px;
+}
+
+.quota-label {
+  color: var(--lh-text-secondary);
+}
+
+.quota-stat {
+  color: var(--lh-text-secondary);
+}
+
+.quota-stat.is-warn {
+  color: #f59e0b;
+}
+
+.quota-stat.is-full {
+  color: #ef4444;
+  font-weight: 600;
+}
+
+.quota-bar-track {
+  width: 100%;
+  height: 4px;
+  background: var(--lh-surface-hover);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.quota-bar-fill {
+  height: 100%;
+  background: var(--lh-accent);
+  border-radius: 2px;
+  transition: width 0.3s ease, background-color 0.3s ease;
+}
+
+.quota-bar-fill.is-warn {
+  background: #f59e0b;
+}
+
+.quota-bar-fill.is-full {
+  background: #ef4444;
 }
 </style>

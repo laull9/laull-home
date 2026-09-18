@@ -1,0 +1,16 @@
+{
+  "name": "我的主页",
+  "short_name": "Home",
+  "description": "私有自托管极简主页与导航系统",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#121316",
+  "theme_color": "#121316",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "64x64 32x32 24x24 16x16",
+      "type": "image/x-icon"
+    }
+  ]
+}

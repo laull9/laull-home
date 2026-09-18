@@ -36,7 +36,7 @@ import { createSearchService, SearchEngineError } from './modules/search/service
 import { createSettingsService } from './modules/settings/service'
 import { createSpacesService } from './modules/spaces/service'
 import { createWallpaperService, WallpaperError } from './modules/wallpapers/service'
-import { createMcpProtocolRoutes, createMcpService } from './modules/mcp'
+import { broadcastDesktopEvent, createMcpProtocolRoutes, createMcpService } from './modules/mcp'
 
 // 检查请求来源是否属于受信任的站点或本地开发环境。
 export function isTrustedOrigin(originHeader: string | null | undefined, refererHeader: string | null | undefined, configOrigin: string): boolean {
@@ -142,13 +142,6 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       cookie.lh_session!.set({ ...cookieOptions, value: result.token, expires: new Date(result.expiresAt) })
       return { user: result.user }
     }, { body: loginSchema })
-    .get('/search/engines', () => {
-      return { engines: searchService.list() }
-    })
-    .get('/search/suggestions', async ({ query }) => {
-      const suggestions = await searchService.getSuggestions(query.q, query.engineId)
-      return { suggestions }
-    }, { query: searchSuggestionsQuerySchema })
     .get('/icons/:filename', ({ params, set, status }) => {
       const icon = faviconService.getIcon(params.filename)
       if (!icon) return status(404, { code: 'NOT_FOUND', message: '图标不存在' })
@@ -170,29 +163,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       }
       return image.buffer
     }, { params: t.Object({ filename: t.String() }) })
-    .get('/bookmarks/groups', ({ query, cookie, status }) => {
-      const spaceId = query.spaceId ?? 'default'
-      const sessionToken = cookie.lh_session?.value
-      const user = typeof sessionToken === 'string' ? auth.authenticate(sessionToken) : null
-      const isVisitor = !user
-      const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
-      const isUnlocked = user ? spaces.verifyAccess(user.id, spaceId, spaceToken) : false
-      if (spaceId === 'privacy' && isVisitor) return status(401, { code: 'UNAUTHORIZED', message: '请先登录' })
-      if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
-      return { groups: bookmarksService.listGroups(spaceId, isUnlocked, isVisitor) }
-    }, { query: t.Object({ spaceId: t.Optional(t.String()) }) })
-    .get('/bookmarks', ({ query, cookie, status }) => {
-      const spaceId = query.spaceId ?? 'default'
-      const sessionToken = cookie.lh_session?.value
-      const user = typeof sessionToken === 'string' ? auth.authenticate(sessionToken) : null
-      const isVisitor = !user
-      const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
-      const isUnlocked = user ? spaces.verifyAccess(user.id, spaceId, spaceToken) : false
-      if (spaceId === 'privacy' && isVisitor) return status(401, { code: 'UNAUTHORIZED', message: '请先登录' })
-      if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
-      return { bookmarks: bookmarksService.listBookmarks(spaceId, isUnlocked, isVisitor, query.groupId) }
-    }, { query: t.Object({ spaceId: t.Optional(t.String()), groupId: t.Optional(t.String()) }) })
-    .use(createMcpProtocolRoutes({ mcpService, desktopService: desktop, settingsService: settings }))
+    .use(createMcpProtocolRoutes({ mcpService, desktopService: desktop, settingsService: settings, authService: auth }))
     .resolve(({ cookie, status }) => {
       const token = cookie.lh_session!.value
       const user = auth.authenticate(token)
@@ -200,6 +171,25 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
       return { user, sessionToken: token as string, spaceToken }
     })
+    .get('/search/engines', () => {
+      return { engines: searchService.list() }
+    })
+    .get('/search/suggestions', async ({ query }) => {
+      const suggestions = await searchService.getSuggestions(query.q, query.engineId)
+      return { suggestions }
+    }, { query: searchSuggestionsQuerySchema })
+    .get('/bookmarks/groups', ({ query, user, spaceToken, status }) => {
+      const spaceId = query.spaceId ?? 'default'
+      const isUnlocked = spaces.verifyAccess(user.id, spaceId, spaceToken)
+      if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
+      return { groups: bookmarksService.listGroups(spaceId, isUnlocked, false) }
+    }, { query: t.Object({ spaceId: t.Optional(t.String()) }) })
+    .get('/bookmarks', ({ query, user, spaceToken, status }) => {
+      const spaceId = query.spaceId ?? 'default'
+      const isUnlocked = spaces.verifyAccess(user.id, spaceId, spaceToken)
+      if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
+      return { bookmarks: bookmarksService.listBookmarks(spaceId, isUnlocked, false, query.groupId) }
+    }, { query: t.Object({ spaceId: t.Optional(t.String()), groupId: t.Optional(t.String()) }) })
     .get('/auth/me', async ({ user }) => {
       const isDefaultPassword = await Bun.password.verify('admin', user.passwordHash)
       return { user: { id: user.id, username: user.username, isDefaultPassword } }
@@ -236,11 +226,16 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
     .get('/settings', ({ user }) => settings.get(user.id))
     .put('/settings', ({ user, body, status }) => {
       const result = settings.update(user.id, body)
-      return result ?? status(409, { code: 'REVISION_CONFLICT', message: '设置已在其他设备更新，请重新读取' })
+      if (!result) return status(409, { code: 'REVISION_CONFLICT', message: '设置已在其他设备更新，请重新读取' })
+      broadcastDesktopEvent('theme.updated', { title: result.title })
+      return result
     }, { body: settingsSchema })
     .post('/desktop/:spaceId/merge', ({ user, params, body, spaceToken, status }) => {
       if (!spaces.verifyAccess(user.id, params.spaceId, spaceToken)) return status(403, { code: 'FORBIDDEN', message: '空间不存在或尚未解锁' })
-      return desktop.merge(params.spaceId, body.desktop, body.sourceId, body.targetId) ?? status(409, { code: 'REVISION_CONFLICT', message: '布局已更新，请重新读取' })
+      const result = desktop.merge(params.spaceId, body.desktop, body.sourceId, body.targetId)
+      if (!result) return status(409, { code: 'REVISION_CONFLICT', message: '布局已更新，请重新读取' })
+      broadcastDesktopEvent('layout.updated', { spaceId: params.spaceId })
+      return result
     }, { params: t.Object({ spaceId: t.String({ maxLength: 64 }) }), body: mergeWidgetsSchema })
     .get('/desktop/:spaceId', ({ user, params, spaceToken, status }) => {
       if (!spaces.verifyAccess(user.id, params.spaceId, spaceToken)) return status(403, { code: 'FORBIDDEN', message: '空间不存在或尚未解锁' })
@@ -248,7 +243,10 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
     }, { params: t.Object({ spaceId: t.String({ maxLength: 64 }) }) })
     .put('/desktop/:spaceId', ({ user, params, body, spaceToken, status }) => {
       if (!spaces.verifyAccess(user.id, params.spaceId, spaceToken)) return status(403, { code: 'FORBIDDEN', message: '空间不存在或尚未解锁' })
-      return desktop.save(params.spaceId, body) ?? status(409, { code: 'REVISION_CONFLICT', message: '布局已在其他设备更新，请重新读取' })
+      const result = desktop.save(params.spaceId, body)
+      if (!result) return status(409, { code: 'REVISION_CONFLICT', message: '布局已在其他设备更新，请重新读取' })
+      broadcastDesktopEvent('layout.updated', { spaceId: params.spaceId })
+      return result
     }, { params: t.Object({ spaceId: t.String({ maxLength: 64 }) }), body: desktopSchema })
     .get('/spaces', ({ user, spaceToken }) => {
       return { spaces: spaces.list(user.id, spaceToken) }
@@ -271,49 +269,66 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
     })
     .post('/bookmarks/groups', ({ user, body, spaceToken }) => {
       const isUnlocked = spaces.verifyAccess(user.id, body.spaceId, spaceToken)
-      return { group: bookmarksService.createGroup(body, isUnlocked) }
+      const group = bookmarksService.createGroup(body, isUnlocked)
+      broadcastDesktopEvent('widget.updated', { spaceId: body.spaceId })
+      return { group }
     }, { body: createBookmarkGroupSchema })
     .put('/bookmarks/groups/:id', ({ user, params, body, spaceToken }) => {
       const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
-      return { group: bookmarksService.updateGroup(params.id, body, isUnlocked) }
+      const group = bookmarksService.updateGroup(params.id, body, isUnlocked)
+      broadcastDesktopEvent('widget.updated')
+      return { group }
     }, { params: t.Object({ id: t.String() }), body: updateBookmarkGroupSchema })
     .delete('/bookmarks/groups/:id', ({ user, params, spaceToken }) => {
       const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
       bookmarksService.deleteGroup(params.id, isUnlocked)
+      broadcastDesktopEvent('widget.updated')
       return { success: true }
     }, { params: t.Object({ id: t.String() }) })
     .post('/bookmarks/groups/reorder', ({ user, query, body, spaceToken }) => {
       const spaceId = query.spaceId ?? 'default'
       const isUnlocked = spaces.verifyAccess(user.id, spaceId, spaceToken)
       bookmarksService.reorderGroups(spaceId, body, isUnlocked)
+      broadcastDesktopEvent('widget.updated', { spaceId })
       return { success: true }
     }, { query: t.Object({ spaceId: t.Optional(t.String()) }), body: reorderBookmarkGroupsSchema })
     .post('/bookmarks', ({ user, body, spaceToken }) => {
       const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
-      return { bookmark: bookmarksService.createBookmark(body, isUnlocked) }
+      const bookmark = bookmarksService.createBookmark(body, isUnlocked)
+      broadcastDesktopEvent('widget.updated', { spaceId: bookmark.spaceId })
+      return { bookmark }
     }, { body: createBookmarkSchema })
     .put('/bookmarks/:id', ({ user, params, body, spaceToken }) => {
       const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
-      return { bookmark: bookmarksService.updateBookmark(params.id, body, isUnlocked) }
+      const bookmark = bookmarksService.updateBookmark(params.id, body, isUnlocked)
+      broadcastDesktopEvent('widget.updated', { spaceId: bookmark.spaceId })
+      return { bookmark }
     }, { params: t.Object({ id: t.String() }), body: updateBookmarkSchema })
     .delete('/bookmarks/:id', ({ user, params, spaceToken }) => {
       const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
       bookmarksService.deleteBookmark(params.id, isUnlocked)
+      broadcastDesktopEvent('widget.updated')
       return { success: true }
     }, { params: t.Object({ id: t.String() }) })
     .post('/bookmarks/reorder', ({ user, body, spaceToken }) => {
       const isUnlocked = spaces.verifyAccess(user.id, 'privacy', spaceToken)
       bookmarksService.reorderBookmarks(body, isUnlocked)
+      broadcastDesktopEvent('widget.updated')
       return { success: true }
     }, { body: reorderBookmarksSchema })
     .post('/search/engines', ({ body }) => {
-      return { engine: searchService.create(body) }
+      const engine = searchService.create(body)
+      broadcastDesktopEvent('widget.updated')
+      return { engine }
     }, { body: createSearchEngineSchema })
     .put('/search/engines/:id', ({ params, body }) => {
-      return { engine: searchService.update(params.id, body) }
+      const engine = searchService.update(params.id, body)
+      broadcastDesktopEvent('widget.updated')
+      return { engine }
     }, { params: t.Object({ id: t.String() }), body: updateSearchEngineSchema })
     .delete('/search/engines/:id', ({ params }) => {
       searchService.delete(params.id)
+      broadcastDesktopEvent('widget.updated')
       return { success: true }
     }, { params: t.Object({ id: t.String() }) })
     .post('/favicon/fetch', async ({ body }) => {
@@ -333,6 +348,9 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       wallpaperService.deletePool(user.id, params.id)
       return { success: true }
     }, { params: t.Object({ id: t.String() }) })
+    .get('/wallpapers/quota', ({ user }) => {
+      return { quota: wallpaperService.getQuota(user.id) }
+    })
     .get('/wallpapers', ({ user, query }) => {
       return { wallpapers: wallpaperService.list(user.id, query.poolId) }
     }, { query: t.Object({ poolId: t.Optional(t.String()) }) })

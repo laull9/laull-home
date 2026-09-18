@@ -176,6 +176,10 @@ async function handleSave() {
     addError.value = "搜索模板必须包含 %s 占位符"
     return
   }
+  if (bang && !/^[a-zA-Z0-9_-]{1,16}$/.test(bang)) {
+    addError.value = "Bang 只能包含 1-16 位英文字母、数字、短横线或下划线"
+    return
+  }
 
   isSubmitting.value = true
   try {

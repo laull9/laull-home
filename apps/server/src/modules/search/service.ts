@@ -1,4 +1,4 @@
-import { asc, desc, eq } from "drizzle-orm"
+import { and, asc, desc, eq, ne } from "drizzle-orm"
 import { randomUUID } from "node:crypto"
 import type {
   CreateSearchEngineInput,
@@ -232,6 +232,17 @@ export function createSearchService(db: AppDatabase) {
         throw new SearchEngineError(400, "搜索建议模板必须包含 %s 占位符")
       }
 
+      const bang = input.bang?.trim().toLowerCase() ?? ""
+      if (bang) {
+        if (!/^[a-zA-Z0-9_-]{1,16}$/.test(bang)) {
+          throw new SearchEngineError(400, "Bang 只能包含 1-16 位字母、数字、下划线或短横线")
+        }
+        const conflict = db.select().from(searchEngines).where(eq(searchEngines.bang, bang)).get()
+        if (conflict) {
+          throw new SearchEngineError(400, `Bang 指令 !${bang} 已被搜索引擎「${conflict.name}」使用`)
+        }
+      }
+
       const now = Date.now()
       const id = "se-" + randomUUID()
       const isDefault = input.isDefault ? 1 : 0
@@ -253,7 +264,7 @@ export function createSearchService(db: AppDatabase) {
         name: input.name.trim(),
         urlTemplate: input.urlTemplate.trim(),
         suggestionUrl: input.suggestionUrl?.trim() ?? "",
-        bang: input.bang?.trim().toLowerCase() ?? "",
+        bang,
         isDefault,
         sortOrder: nextSortOrder,
         createdAt: now,
@@ -287,7 +298,19 @@ export function createSearchService(db: AppDatabase) {
       if (input.name !== undefined) values.name = input.name.trim()
       if (input.urlTemplate !== undefined) values.urlTemplate = input.urlTemplate.trim()
       if (input.suggestionUrl !== undefined) values.suggestionUrl = input.suggestionUrl.trim()
-      if (input.bang !== undefined) values.bang = input.bang.trim().toLowerCase()
+      if (input.bang !== undefined) {
+        const bang = input.bang.trim().toLowerCase()
+        if (bang) {
+          if (!/^[a-zA-Z0-9_-]{1,16}$/.test(bang)) {
+            throw new SearchEngineError(400, "Bang 只能包含 1-16 位字母、数字、下划线或短横线")
+          }
+          const conflict = db.select().from(searchEngines).where(and(eq(searchEngines.bang, bang), ne(searchEngines.id, id))).get()
+          if (conflict) {
+            throw new SearchEngineError(400, `Bang 指令 !${bang} 已被搜索引擎「${conflict.name}」使用`)
+          }
+        }
+        values.bang = bang
+      }
       if (input.isDefault !== undefined) values.isDefault = input.isDefault ? 1 : 0
       if (input.sortOrder !== undefined) values.sortOrder = input.sortOrder
 

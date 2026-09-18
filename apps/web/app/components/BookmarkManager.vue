@@ -71,7 +71,7 @@ function removeBookmark(value: Bookmark) {
 <template>
   <BaseModal :show="show" title="书签与分组" max-width="900px" @close="emit('close')">
     <p v-if="error" role="alert">{{ error }}</p>
-    <BookmarkGroupSection :groups="groups" :bookmarks="bookmarks" :is-edit-mode="true" :is-visitor="false" @create-group="editGroup(null)" @edit-group="editGroup" @delete-group="removeGroup" @add-bookmark="editing = null; showBookmark = true" @edit-bookmark="editing = $event; showBookmark = true" @delete-bookmark="removeBookmark" />
+    <BookmarkGroupSection :groups="groups" :bookmarks="bookmarks" :is-edit-mode="true" @create-group="editGroup(null)" @edit-group="editGroup" @delete-group="removeGroup" @add-bookmark="editing = null; showBookmark = true" @edit-bookmark="editing = $event; showBookmark = true" @delete-bookmark="removeBookmark" />
   </BaseModal>
   <GroupPromptModal :show="showGroup" :title="group ? '修改分组' : '新建分组'" v-model="name" @close="showGroup = false" @save="saveGroup" />
   <BookmarkModal :show="showBookmark" :editing-bookmark="editing" :groups="groups" :current-space-id="spaceId" @close="showBookmark = false" />

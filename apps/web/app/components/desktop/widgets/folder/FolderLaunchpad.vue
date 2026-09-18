@@ -8,6 +8,7 @@ const props = defineProps<{
   title: string
   items: Bookmark[]
   editing: boolean
+  folderNodeId?: string
 }>()
 
 // 展开完整弹窗或编辑单条书签事件。
@@ -33,7 +34,7 @@ function handleItemDragStart(event: DragEvent, item: Bookmark) {
   event.stopPropagation()
   if (event.dataTransfer) {
     event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', `folder-item::${item.groupId || ''}:${item.id}`)
+    event.dataTransfer.setData('text/plain', `folder-item:${props.folderNodeId || ''}:${item.groupId || ''}:${item.id}`)
   }
 }
 

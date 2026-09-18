@@ -6,9 +6,13 @@ import { createUser } from "../src/modules/auth/service"
 import { assertSafeOutboundUrl, isPrivateIp } from "../src/modules/favicon/service"
 import { decodeBufferWithEncoding, parseSuggestionsPayload, resolveSuggestionTemplate } from "../src/modules/search/service"
 import { parseSearchQuery, type SearchEngine } from "@laull-home/shared"
+import { clearActiveClients } from "../src/modules/mcp/events"
 
 const databases: AppDatabase[] = []
-afterEach(() => { for (const db of databases.splice(0)) db.close() })
+afterEach(() => {
+  clearActiveClients()
+  for (const db of databases.splice(0)) db.close()
+})
 
 async function fixture() {
   const db = openDatabase(":memory:")
@@ -123,29 +127,78 @@ describe("书签与分组 CRUD 及排序", () => {
     const restoredBm = (await moveOutRes.json()).bookmark
     expect(restoredBm.groupId).toBeNull()
   })
-})
 
-describe("空间与访客权限隔离", () => {
-  test("访客只能读取公开内容，写操作需登录", async () => {
+  // 验证文件夹新增与放入排序准则：默认在最后一个，不按名称插入中间
+  test("文件夹放入与新增书签默认追加在最后一位", async () => {
     const { request, login } = await fixture()
     const { cookie } = await login()
 
-    // 访客尝试创建书签应被拦截
+    // 1. 创建目标文件夹分组
+    const group = (await (await request("/bookmarks/groups", "POST", { spaceId: "default", name: "待整理文件夹" }, cookie)).json()).group
+
+    // 2. 依次新增两个书签：“B书签”与“Z书签”
+    await request("/bookmarks", "POST", { spaceId: "default", groupId: group.id, title: "B书签", url: "https://b.com" }, cookie)
+    await request("/bookmarks", "POST", { spaceId: "default", groupId: group.id, title: "Z书签", url: "https://z.com" }, cookie)
+
+    // 3. 新增一个字母序靠前的“A书签”，验证其排在现有书签之后（最后一位）
+    await request("/bookmarks", "POST", { spaceId: "default", groupId: group.id, title: "A书签", url: "https://a.com" }, cookie)
+    const list1 = (await (await request("/bookmarks?spaceId=default&groupId=" + group.id, "GET", undefined, cookie)).json()).bookmarks
+    expect(list1).toHaveLength(3)
+    expect(list1[0].title).toBe("B书签")
+    expect(list1[1].title).toBe("Z书签")
+    expect(list1[2].title).toBe("A书签")
+
+    // 4. 创建一个外部独立书签（名字为“C书签”，原始 sortOrder 为 0）
+    const standalone = (await (await request("/bookmarks", "POST", { spaceId: "default", title: "C书签", url: "https://c.com" }, cookie)).json()).bookmark
+
+    // 5. 将外部书签放入该文件夹（未传 sortOrder），验证自动追加在文件夹最后一位
+    await request("/bookmarks/" + standalone.id, "PUT", { groupId: group.id }, cookie)
+    const list2 = (await (await request("/bookmarks?spaceId=default&groupId=" + group.id, "GET", undefined, cookie)).json()).bookmarks
+    expect(list2).toHaveLength(4)
+    expect(list2[0].title).toBe("B书签")
+    expect(list2[1].title).toBe("Z书签")
+    expect(list2[2].title).toBe("A书签")
+    expect(list2[3].title).toBe("C书签")
+  })
+})
+
+describe("完全关闭访客访问与权限防护", () => {
+  test("未登录访客禁止访问书签、分组与搜索引擎，一律返回 401", async () => {
+    const { request, login } = await fixture()
+    const { cookie } = await login()
+
+    // 访客尝试创建书签分组被拦截
     const anonWrite = await request("/bookmarks/groups", "POST", { spaceId: "default", name: "秘密" })
     expect(anonWrite.status).toBe(401)
 
-    // 登录后在默认空间创建一个公开分组和一个非公开分组
-    const gPublicRes = await request("/bookmarks/groups", "POST", { spaceId: "default", name: "公开组", isPublic: true }, cookie)
-    const gPrivateRes = await request("/bookmarks/groups", "POST", { spaceId: "default", name: "私密组", isPublic: false }, cookie)
-    const gPublic = (await gPublicRes.json()).group
-    const gPrivate = (await gPrivateRes.json()).group
-
-    // 访客读取只能看到公开分组以及初始化自带的公开分组
+    // 访客读取书签分组被拦截
     const anonGroupsRes = await request("/bookmarks/groups?spaceId=default")
-    expect(anonGroupsRes.status).toBe(200)
-    const anonGroups = (await anonGroupsRes.json()).groups
-    expect(anonGroups.some((g: { id: string }) => g.id === gPublic.id)).toBe(true)
-    expect(anonGroups.some((g: { id: string }) => g.id === gPrivate.id)).toBe(false)
+    expect(anonGroupsRes.status).toBe(401)
+
+    // 访客读取书签列表被拦截
+    const anonBmsRes = await request("/bookmarks?spaceId=default")
+    expect(anonBmsRes.status).toBe(401)
+
+    // 访客读取搜索引擎被拦截
+    const anonEnginesRes = await request("/search/engines")
+    expect(anonEnginesRes.status).toBe(401)
+
+    // 访客读取搜索建议被拦截
+    const anonSugRes = await request("/search/suggestions?q=test")
+    expect(anonSugRes.status).toBe(401)
+
+    // 访客建立 SSE 长连接被拦截
+    const anonSseRes = await request("/desktop/events")
+    expect(anonSseRes.status).toBe(401)
+
+    // 登录后在默认空间创建分组并读取
+    const gPublicRes = await request("/bookmarks/groups", "POST", { spaceId: "default", name: "常用导航" }, cookie)
+    expect(gPublicRes.status).toBe(200)
+
+    const authGroupsRes = await request("/bookmarks/groups?spaceId=default", "GET", undefined, cookie)
+    expect(authGroupsRes.status).toBe(200)
+    const groups = (await authGroupsRes.json()).groups
+    expect(groups.some((g: { name: string }) => g.name === "常用导航")).toBe(true)
   })
 
   test("隐私空间书签在未授权时禁止访问，短期授权有效时可操作", async () => {
@@ -179,8 +232,8 @@ describe("搜索引擎与 Bang 匹配", () => {
     const { request, login } = await fixture()
     const { cookie } = await login()
 
-    // 访客公开获取引擎列表
-    const listRes = await request("/search/engines")
+    // 登录后获取引擎列表
+    const listRes = await request("/search/engines", "GET", undefined, cookie)
     expect(listRes.status).toBe(200)
     const engines = (await listRes.json()).engines
     expect(engines.length).toBeGreaterThanOrEqual(5)
@@ -204,6 +257,59 @@ describe("搜索引擎与 Bang 匹配", () => {
     // 删除引擎
     const delRes = await request("/search/engines/" + bili.id, "DELETE", undefined, cookie)
     expect(delRes.status).toBe(200)
+  })
+
+  test("自定义 Bang 格式校验与唯一性查重防范", async () => {
+    const { request, login } = await fixture()
+    const { cookie } = await login()
+
+    // 1. 添加带合法 Bang 的新引擎
+    const res1 = await request("/search/engines", "POST", {
+      name: "Docker Hub",
+      urlTemplate: "https://hub.docker.com/search?q=%s",
+      bang: "dh",
+    }, cookie)
+    expect(res1.status).toBe(200)
+    const engine1 = (await res1.json()).engine
+
+    // 2. 添加包含非法字符的 Bang 被 400 拦截
+    const resInvalid = await request("/search/engines", "POST", {
+      name: "Bad Bang",
+      urlTemplate: "https://example.com/search?q=%s",
+      bang: "bad bang!",
+    }, cookie)
+    expect(resInvalid.status).toBe(400)
+
+    // 3. 添加重复的 Bang 被 400 拦截
+    const resDuplicate = await request("/search/engines", "POST", {
+      name: "Duplicate Bang",
+      urlTemplate: "https://example.com/search?q=%s",
+      bang: "dh",
+    }, cookie)
+    expect(resDuplicate.status).toBe(400)
+    expect((await resDuplicate.json()).message).toContain("已被搜索引擎")
+
+    // 4. 更新自身保持原 Bang 放行
+    const resUpdateSelf = await request("/search/engines/" + engine1.id, "PUT", {
+      bang: "dh",
+      name: "Docker Hub Official",
+    }, cookie)
+    expect(resUpdateSelf.status).toBe(200)
+
+    // 5. 更新为与其他引擎冲突的 Bang 被拦截
+    const res2 = await request("/search/engines", "POST", {
+      name: "NPM Search",
+      urlTemplate: "https://www.npmjs.com/search?q=%s",
+      bang: "npm",
+    }, cookie)
+    expect(res2.status).toBe(200)
+    const engine2 = (await res2.json()).engine
+
+    const resConflict = await request("/search/engines/" + engine2.id, "PUT", {
+      bang: "dh",
+    }, cookie)
+    expect(resConflict.status).toBe(400)
+    expect((await resConflict.json()).message).toContain("已被搜索引擎")
   })
 
   test("搜索输入解析器准确识别 URL、Bang 与常规搜索", () => {
@@ -358,14 +464,19 @@ describe("多搜索引擎建议与联想匹配", () => {
   })
 
   test("/search/suggestions 端点获取关联搜索建议与异常防护", async () => {
-    const { request } = await fixture()
+    const { request, login } = await fixture()
+    const { cookie } = await login()
 
-    // 1. 未传关键字或纯空格直接返回 400 校验拦截
-    const emptyRes = await request("/search/suggestions?q=")
+    // 1. 未登录访问必须直接 401 拦截
+    const anonRes = await request("/search/suggestions?q=bun")
+    expect(anonRes.status).toBe(401)
+
+    // 2. 未传关键字或纯空格直接返回 400 校验拦截
+    const emptyRes = await request("/search/suggestions?q=", "GET", undefined, cookie)
     expect(emptyRes.status).toBe(400)
 
-    // 2. 正常查询端点调用，结构保持契约
-    const sugRes = await request("/search/suggestions?q=bun")
+    // 3. 正常查询端点调用，结构保持契约
+    const sugRes = await request("/search/suggestions?q=bun", "GET", undefined, cookie)
     expect(sugRes.status).toBe(200)
     const data = await sugRes.json()
     expect(Array.isArray(data.suggestions)).toBe(true)

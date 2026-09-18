@@ -248,5 +248,64 @@ test('智能多向避让算法：支持向左退让、垂直避让与就近换�
   expect(wrappedP.x).toBeGreaterThanOrEqual(4) // 紧邻就近列，绝不生硬跳回 x: 0
 })
 
+// 文件夹内书签移出落盘至桌面成为独立书签组件。
+test('文件夹内书签移出落盘至桌面生成独立书签组件并脱离分组', async () => {
+  const { request, cookie } = await fixture()
+  // 1. 创建分组与两个书签。
+  const group = (await (await request('/bookmarks/groups', 'POST', { spaceId: 'default', name: '常用工具' }, cookie)).json()).group
+  const bmRes1 = await request('/bookmarks', 'POST', { groupId: group.id, title: '工具A', url: 'https://a.com' }, cookie)
+  const bmA = (await bmRes1.json()).bookmark
+  const bmRes2 = await request('/bookmarks', 'POST', { groupId: group.id, title: '工具B', url: 'https://b.com' }, cookie)
+  const bmB = (await bmRes2.json()).bookmark
 
+  // 2. 初始桌面包含一个文件夹小部件。
+  const folderWidget = {
+    ...newWidget('folder', 'folder-1'),
+    title: '常用工具',
+    referenceId: group.id,
+    layouts: {
+      desktop: { x: 0, y: 0, w: 2, h: 2, pinned: true },
+    },
+  }
+  const initialDesktop = { revision: 0, nodes: [folderWidget], templates: [] }
+  await request('/desktop/default', 'PUT', initialDesktop, cookie)
 
+  // 3. 模拟拖出书签 A 到桌面落点 (3, 2)：首先将书签 A 的 groupId 置空（脱离分组）。
+  const updateBmRes = await request(`/bookmarks/${bmA.id}`, 'PUT', { groupId: null }, cookie)
+  expect(updateBmRes.status).toBe(200)
+  const updatedBmA = (await updateBmRes.json()).bookmark
+  expect(updatedBmA.groupId).toBeNull()
+
+  // 4. 将独立书签添加到桌面 nodes 数组并保存桌面。
+  const newBookmarkWidget = {
+    ...newWidget('bookmark', 'bm-widget-a'),
+    title: bmA.title,
+    referenceId: bmA.id,
+    layouts: {
+      desktop: { x: 3, y: 2, w: 1, h: 1, pinned: true },
+    },
+    style: { opacity: 100, blur: 0, radius: 16, padding: 8, border: 0, color: '', background: '', frameless: true },
+  }
+  const updatedDesktop = {
+    revision: 1,
+    nodes: [folderWidget, newBookmarkWidget],
+    templates: [],
+  }
+  const saveRes = await request('/desktop/default', 'PUT', updatedDesktop, cookie)
+  expect(saveRes.status).toBe(200)
+
+  // 5. 验证读取桌面与分组状态：书签 A 已独立于桌面 (3, 2)，书签 B 仍在文件夹分组内。
+  const desktopData = await (await request('/desktop/default', 'GET', undefined, cookie)).json() as Desktop
+  expect(desktopData.nodes).toHaveLength(2)
+  const savedFolder = desktopData.nodes.find(n => n.id === 'folder-1')
+  const savedBm = desktopData.nodes.find(n => n.id === 'bm-widget-a')
+  expect(savedFolder?.type).toBe('folder')
+  expect(savedBm?.type).toBe('bookmark')
+  expect(savedBm?.layouts.desktop).toEqual({ x: 3, y: 2, w: 1, h: 1, pinned: true })
+
+  const allBookmarks = (await (await request('/bookmarks', 'GET', undefined, cookie)).json()).bookmarks
+  const foundA = allBookmarks.find((b: { id: string }) => b.id === bmA.id)
+  const foundB = allBookmarks.find((b: { id: string }) => b.id === bmB.id)
+  expect(foundA.groupId).toBeNull()
+  expect(foundB.groupId).toBe(group.id)
+})

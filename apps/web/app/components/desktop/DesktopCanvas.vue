@@ -29,7 +29,7 @@ const emit = defineEmits<{
 const { data, error, loading, saving, dirty, load, save, merge, update, add, remove, template } = useDesktop()
 const { updateBookmark, createGroup } = useBookmarks()
 const breakpoint = ref<Breakpoint>('desktop')
-const { handleDropToCanvas } = useFolderItemDrag({
+const { handleDropToCanvas, handleDropToFolder } = useFolderItemDrag({
   spaceId: computed(() => props.spaceId),
   breakpoint,
   data,
@@ -272,11 +272,27 @@ function handleAddWidget(type: WidgetNode['type'], variant?: string, size?: { w:
   add(type, undefined, variant, size, { frameless, referenceId: targetRefId, title: targetTitle, breakpoint: breakpoint.value })
 }
 // 组件树拖拽网格放置预览。
+// 组件树与外部条目拖拽网格放置预览与文件夹吸收。
 const libraryPreview = ref<Placement | null>(null)
-// 原生拖拽进入网格计算落点。
+const nativeHoverFolderId = ref<string | null>(null)
+
+// 原生拖拽进入网格计算落点或悬停文件夹。
 function libraryOver(event: DragEvent) {
   event.preventDefault()
   if (!canvas.value) return
+
+  // 检查是否悬停在某个文件夹组件上方。
+  const targetEl = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-widget-id]')
+  const targetId = targetEl?.dataset.widgetId
+  const targetNode = targetId ? data.value?.nodes.find(item => item.id === targetId) : null
+
+  if (targetNode?.type === 'folder') {
+    nativeHoverFolderId.value = targetNode.id
+    libraryPreview.value = null
+    return
+  }
+
+  nativeHoverFolderId.value = null
   const item = activeDragTreeItem.value
   const w = item?.w ?? 1, h = item?.h ?? 1
   const grid = canvas.value
@@ -291,15 +307,58 @@ function libraryOver(event: DragEvent) {
     libraryPreview.value = { x, y, w, h, pinned: true }
   }
 }
-// 离开网格清除预览框。
-function libraryLeave() { libraryPreview.value = null }
-// 组件树拖放后定位到目标网格并持久化。
+
+// 离开网格清除预览框与高亮目标。
+function libraryLeave() {
+  libraryPreview.value = null
+  nativeHoverFolderId.value = null
+}
+
+// 组件树与外部条目拖放后定位到目标网格或放入文件夹。
 async function drop(event: DragEvent) {
   event.preventDefault()
-  const targetP = libraryPreview.value
+  const hoveredFolderId = nativeHoverFolderId.value
+  nativeHoverFolderId.value = null
+  let targetP = libraryPreview.value
   libraryPreview.value = null
   const text = event.dataTransfer?.getData('text/plain') || dragged.value
-  if (saving.value || !data.value) return
+  if (!text || saving.value || !data.value) return
+
+  // 优先判定是否拖入文件夹小部件（拖到文件夹上再次放入）。
+  const targetEl = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-widget-id]')
+  const targetId = hoveredFolderId || targetEl?.dataset.widgetId
+  const targetFolderNode = targetId ? data.value.nodes.find(item => item.id === targetId && item.type === 'folder') : null
+
+  if (targetFolderNode) {
+    let groupId = targetFolderNode.referenceId
+    if (!groupId) {
+      const created = await createGroup({ spaceId: props.spaceId, name: targetFolderNode.title || '新文件夹' })
+      if (created) {
+        groupId = created.id
+        update({ ...targetFolderNode, referenceId: groupId })
+      }
+    }
+    if (groupId) {
+      await handleDropToFolder(groupId, text)
+      return
+    }
+  }
+
+  // 兜底计算网格落点，防止松手瞬间由于 dragleave 清空 preview 而导致 drop 丢失。
+  if (!targetP && canvas.value) {
+    const grid = canvas.value
+    const bounds = grid.getBoundingClientRect()
+    if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
+      const columns = BREAKPOINTS[breakpoint.value]
+      const gap = parseFloat(getComputedStyle(grid).columnGap) || 0
+      const rowGap = parseFloat(getComputedStyle(grid).rowGap) || 0
+      const cell = (bounds.width - gap * (columns - 1)) / columns
+      const x = Math.max(0, Math.min(columns - 1, Math.floor((event.clientX - bounds.left) / (cell + gap))))
+      const y = Math.max(0, Math.min(199, Math.floor((event.clientY - bounds.top) / (96 + rowGap))))
+      targetP = { x, y, w: 1, h: 1, pinned: true }
+    }
+  }
+
   if (text.startsWith('folder-item:')) {
     if (targetP) await handleDropToCanvas(text, targetP)
     return
@@ -443,7 +502,7 @@ onUnmounted(() => {
           'search-widget': entry.node.type === 'search',
           'frameless-widget': isFrameless(entry.node),
           'dragging-widget': drag.draggingId.value === entry.node.id,
-          'folder-absorb-target': drag.hoverFolderId.value === entry.node.id,
+          'folder-absorb-target': drag.hoverFolderId.value === entry.node.id || nativeHoverFolderId === entry.node.id,
         }"
         :style="style(entry.node)"
         @pointerdown="drag.start($event, entry.node)"
@@ -455,7 +514,7 @@ onUnmounted(() => {
           <button type="button" :aria-label="'固定'+entry.node.title" :aria-pressed="positions.get(entry.node.id)?.pinned" @click="pin(entry.node)">{{ positions.get(entry.node.id)?.pinned ? '已固定' : '固定' }}</button>
         </div>
         <span v-if="alt && shortcuts.some(node => node.id === entry.node.id)" class="shortcut">{{ shortcuts.findIndex(node => node.id === entry.node.id) + 1 }}</span>
-        <WidgetContent :node="entry.node" :bookmarks="filter ? bookmarks.filter(item => item.title.toLowerCase().includes(filter.toLowerCase())) : bookmarks" :groups="groups" :editing="editing" :width="positions.get(entry.node.id)!.w" @update="handleWidgetUpdate" @edit-bookmark="emit('editBookmark', $event)" @add-bookmark="emit('addBookmark', $event)" />
+        <WidgetContent :node="entry.node" :bookmarks="filter ? bookmarks.filter(item => item.title.toLowerCase().includes(filter.toLowerCase())) : bookmarks" :groups="groups" :editing="editing" :width="positions.get(entry.node.id)!.w" @update="handleWidgetUpdate" @edit-bookmark="emit('editBookmark', $event)" @add-bookmark="emit('addBookmark', $event)" @refresh="emit('refresh')" />
         <div v-if="entry.count > 1" class="stack-controls" @wheel.prevent="cycle(entry.key, $event.deltaY > 0 ? 1 : -1)" @touchstart="touchStart = $event.touches[0]!.clientY" @touchend="Math.abs($event.changedTouches[0]!.clientY-touchStart) > 20 && cycle(entry.key, $event.changedTouches[0]!.clientY < touchStart ? 1 : -1)">
           <button type="button" aria-label="上一张" @click="cycle(entry.key, -1)">‹</button><span>{{ (activeStacks[entry.key] ?? 0) % entry.count + 1 }} / {{ entry.count }}</span><button type="button" aria-label="下一张" @click="cycle(entry.key)">›</button>
           <button v-if="editing" type="button" @click="update({ ...entry.node, stackId: '' })">移出叠放</button>

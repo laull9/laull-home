@@ -2,6 +2,7 @@ import { and, count, desc, eq, inArray, isNull } from 'drizzle-orm'
 import {
   isValidSafeUrl,
   WALLPAPER_FIT_MODES,
+  WALLPAPER_QUOTA,
   type BatchWallpaperItem,
   type CreateWallpaperInput,
   type CreateWallpaperPoolInput,
@@ -10,6 +11,7 @@ import {
   type WallpaperFitMode,
   type WallpaperItem,
   type WallpaperPool,
+  type WallpaperQuotaInfo,
 } from '@laull-home/shared'
 import type { AppDatabase } from '../../db'
 import { userSettings, wallpaperPools, wallpapers } from '../../db/schema'
@@ -397,8 +399,38 @@ export function createWallpaperService(db: AppDatabase, dataDir: string) {
       return { deletedCount: matchedIds.length }
     },
 
+    // 获取当前用户图库本地上传存储配额详情。
+    getQuota(userId: number): WallpaperQuotaInfo {
+      const uploadRows = db.select({ url: wallpapers.url })
+        .from(wallpapers)
+        .where(and(eq(wallpapers.userId, userId), eq(wallpapers.sourceType, 'upload')))
+        .all()
+
+      const filenames = uploadRows
+        .map(r => r.url.replace('/api/v1/wallpapers/image/', ''))
+        .filter(Boolean)
+      const usedBytes = storage.getFilesTotalSize(filenames)
+      const usedCount = uploadRows.length
+
+      return {
+        usedBytes,
+        totalBytes: WALLPAPER_QUOTA.maxTotalBytes,
+        usedCount,
+        maxCount: WALLPAPER_QUOTA.maxCount,
+      }
+    },
+
     // 上传本地图片并加入指定图片池。
     async saveUpload(userId: number, file: Blob, customName?: string, poolId?: string, fitMode?: string): Promise<WallpaperItem> {
+      const quota = this.getQuota(userId)
+      if (quota.usedCount >= quota.maxCount) {
+        throw new WallpaperError(400, `已达到图库上传数量上限（最多 ${quota.maxCount} 张）`)
+      }
+      if (quota.usedBytes + file.size > quota.totalBytes) {
+        const maxMb = Math.round(quota.totalBytes / (1024 * 1024))
+        throw new WallpaperError(400, `已超出图库存储配额（上限 ${maxMb}MB），请先清理不需要的壁纸`)
+      }
+
       const targetPoolId = resolveTargetPoolId(userId, poolId)
       const { relativeUrl } = await storage.saveUploadFile(file)
 

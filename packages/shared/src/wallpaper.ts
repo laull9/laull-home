@@ -7,6 +7,29 @@ export const WALLPAPER_FIT_MODES = ['cover', 'contain', 'fill', 'center', 'tile'
 // 壁纸填充模式类型。
 export type WallpaperFitMode = (typeof WALLPAPER_FIT_MODES)[number]
 
+// 图库存储配额限制常量。
+export const WALLPAPER_QUOTA = {
+  // 单用户本地上传壁纸最大总存储体积（150MB）。
+  maxTotalBytes: 150 * 1024 * 1024,
+  // 单用户本地上传壁纸最大数量（100 张）。
+  maxCount: 100,
+} as const
+
+// 图库存储配额校验结构。
+export const wallpaperQuotaSchema = Type.Object({
+  // 已使用存储字节数。
+  usedBytes: Type.Integer(),
+  // 允许的最大存储字节数。
+  totalBytes: Type.Integer(),
+  // 已上传壁纸数量。
+  usedCount: Type.Integer(),
+  // 允许的最大上传壁纸数量。
+  maxCount: Type.Integer(),
+})
+
+// 图库存储配额类型。
+export type WallpaperQuotaInfo = Static<typeof wallpaperQuotaSchema>
+
 // 填充模式校验结构。
 export const wallpaperFitModeSchema = Type.Union([
   Type.Literal('cover'),

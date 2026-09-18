@@ -8,11 +8,14 @@ export interface DesktopEventsOptions {
   onWidgetUpdated?: (data: unknown) => void
   // 网格排布变动时的回调。
   onLayoutUpdated?: (data: unknown) => void
+  // 连接断线后恢复时的重读回调。
+  onReconnect?: () => void
 }
 
 // 建立与服务端的轻量 SSE 热重载连接。
 export function useDesktopEvents(options: DesktopEventsOptions) {
   let eventSource: EventSource | null = null
+  let hasDisconnected = false
 
   // 启动热重载长连接。
   function connect() {
@@ -21,6 +24,17 @@ export function useDesktopEvents(options: DesktopEventsOptions) {
 
     try {
       eventSource = new EventSource('/api/v1/desktop/events', { withCredentials: true })
+
+      eventSource.onopen = () => {
+        if (hasDisconnected) {
+          hasDisconnected = false
+          options.onReconnect?.()
+        }
+      }
+
+      eventSource.onerror = () => {
+        hasDisconnected = true
+      }
 
       if (options.onThemeUpdated) {
         eventSource.addEventListener('theme.updated', (event: MessageEvent) => {
@@ -64,6 +78,7 @@ export function useDesktopEvents(options: DesktopEventsOptions) {
     if (eventSource) {
       eventSource.close()
       eventSource = null
+      hasDisconnected = false
     }
   }
 

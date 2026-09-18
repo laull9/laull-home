@@ -1,4 +1,4 @@
-import { and, asc, desc, eq } from "drizzle-orm"
+import { and, asc, desc, eq, isNull } from "drizzle-orm"
 import { randomUUID } from "node:crypto"
 import type {
   Bookmark,
@@ -195,7 +195,11 @@ export function createBookmarkService(db: AppDatabase) {
 
       const now = Date.now()
       const maxOrderConditions = [eq(bookmarks.spaceId, targetSpaceId)]
-      if (targetGroupId) maxOrderConditions.push(eq(bookmarks.groupId, targetGroupId))
+      if (targetGroupId) {
+        maxOrderConditions.push(eq(bookmarks.groupId, targetGroupId))
+      } else {
+        maxOrderConditions.push(isNull(bookmarks.groupId))
+      }
       const maxOrderRow = db.select({ sortOrder: bookmarks.sortOrder })
         .from(bookmarks)
         .where(and(...maxOrderConditions))
@@ -246,12 +250,32 @@ export function createBookmarkService(db: AppDatabase) {
       if (input.groupId !== undefined && input.groupId !== bookmark.groupId) {
         if (input.groupId === null) {
           values.groupId = null
+          // 未显式指定排序时，从文件夹移出默认排在独立书签末尾。
+          if (input.sortOrder === undefined) {
+            const maxOrderRow = db.select({ sortOrder: bookmarks.sortOrder })
+              .from(bookmarks)
+              .where(and(eq(bookmarks.spaceId, bookmark.spaceId), isNull(bookmarks.groupId)))
+              .orderBy(desc(bookmarks.sortOrder))
+              .limit(1)
+              .get()
+            values.sortOrder = (maxOrderRow?.sortOrder ?? -1) + 1
+          }
         } else {
           const targetGroup = db.select().from(bookmarkGroups).where(eq(bookmarkGroups.id, input.groupId)).get()
           if (!targetGroup) throw new BookmarkError(404, "目标分组不存在")
           assertSpacePermission(targetGroup.spaceId, isUnlocked)
           values.groupId = targetGroup.id
           values.spaceId = targetGroup.spaceId
+          // 未显式指定排序时，放入文件夹默认追加在最后一位，绝不在中间插入。
+          if (input.sortOrder === undefined) {
+            const maxOrderRow = db.select({ sortOrder: bookmarks.sortOrder })
+              .from(bookmarks)
+              .where(and(eq(bookmarks.spaceId, targetGroup.spaceId), eq(bookmarks.groupId, targetGroup.id)))
+              .orderBy(desc(bookmarks.sortOrder))
+              .limit(1)
+              .get()
+            values.sortOrder = (maxOrderRow?.sortOrder ?? -1) + 1
+          }
         }
       }
 

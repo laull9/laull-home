@@ -14,8 +14,11 @@ export function useDesktop() {
   // 空间切换的旧响应不能覆盖新空间。
   async function load(spaceId: string) {
     const request = ++generation
+    // 跨空间加载时清空旧数据，同空间重读保持旧数据平滑更新。
+    if (currentSpace !== spaceId) {
+      data.value = null
+    }
     currentSpace = spaceId
-    data.value = null
     dirty.value = false
     error.value = ''
     loading.value = true

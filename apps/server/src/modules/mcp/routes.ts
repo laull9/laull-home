@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia'
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js'
 import type { DesktopService } from '../desktop/service'
 import type { SettingsService } from '../settings/service'
+import type { AuthService } from '../auth/service'
 import { subscribeDesktopEvents } from './events'
 import { createMcpServer } from './server'
 import type { McpService } from './service'
@@ -12,6 +13,7 @@ export interface McpProtocolOptions {
   mcpService: McpService
   desktopService: DesktopService
   settingsService: SettingsService
+  authService: AuthService
 }
 
 // 抽取请求头中的 Bearer 凭据。
@@ -24,11 +26,18 @@ function extractBearerToken(authHeader: string | null | undefined): string | nul
 
 // 远程 MCP 协议传输通道与浏览器广播路由（位于 resolve 之前）。
 export function createMcpProtocolRoutes(options: McpProtocolOptions) {
-  const { mcpService, desktopService, settingsService } = options
+  const { mcpService, desktopService, settingsService, authService } = options
 
   return new Elysia()
-    // 浏览器端桌面热重载 SSE 通道。
-    .get('/desktop/events', () => {
+    // 浏览器端桌面热重载 SSE 通道（需要已登录 Session 授权）。
+    .get('/desktop/events', ({ cookie, request, status }) => {
+      const sessionToken = cookie.lh_session?.value
+      const bearerToken = extractBearerToken(request.headers.get('authorization'))
+      const token = typeof sessionToken === 'string' ? sessionToken : bearerToken
+      if (!token) return status(401, { code: 'UNAUTHORIZED', message: '请先登录' })
+      const user = authService.authenticate(token)
+      if (!user) return status(401, { code: 'UNAUTHORIZED', message: '请先登录' })
+
       let unsubscribe: (() => void) | undefined
       const stream = new ReadableStream({
         start(controller) {
@@ -37,6 +46,9 @@ export function createMcpProtocolRoutes(options: McpProtocolOptions) {
         cancel() {
           unsubscribe?.()
         },
+      })
+      request.signal?.addEventListener('abort', () => {
+        unsubscribe?.()
       })
 
       return new Response(stream, {

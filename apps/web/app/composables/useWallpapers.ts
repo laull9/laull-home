@@ -5,6 +5,7 @@ import type {
   UpdateWallpaperInput,
   WallpaperItem,
   WallpaperPool,
+  WallpaperQuotaInfo,
 } from '@laull-home/shared'
 
 // 全局自动轮换定时器引用。
@@ -22,14 +23,32 @@ export function useWallpapers() {
   const selectedPoolId = useState<string>('wallpapers:selectedPoolId', () => '')
   // 全局共享当前选中图片池的壁纸列表。
   const wallpapers = useState<WallpaperItem[]>('wallpapers:list', () => [])
+  // 全局图库存储配额使用状态。
+  const quota = useState<WallpaperQuotaInfo | null>('wallpapers:quota', () => null)
   // 请求加载中状态。
   const loading = ref(false)
   // 操作错误提示。
   const errorMsg = ref('')
 
+  // 获取当前图库上传配额。
+  async function fetchQuota(): Promise<WallpaperQuotaInfo | null> {
+    if (!user.value) return null
+    try {
+      const res = await $api.wallpapers.quota.get()
+      if (res.data?.quota) {
+        quota.value = res.data.quota
+        return res.data.quota
+      }
+      return null
+    } catch {
+      return null
+    }
+  }
+
   // 获取所有图片池列表。
   async function fetchPools(): Promise<WallpaperPool[]> {
     if (!user.value) return []
+    void fetchQuota()
     try {
       const res = await $api.wallpapers.pools.get()
       if (res.data) {
@@ -200,6 +219,7 @@ export function useWallpapers() {
         wallpapers.value = [res.data.wallpaper, ...wallpapers.value]
         const pool = pools.value.find(p => p.id === targetPool)
         if (pool && pool.count !== undefined) pool.count++
+        void fetchQuota()
         return res.data.wallpaper
       }
       throw new Error(res.error?.value ? String(res.error.value) : '上传失败')
@@ -235,6 +255,7 @@ export function useWallpapers() {
         wallpapers.value = wallpapers.value.filter(item => item.id !== id)
         const pool = pools.value.find(p => p.id === selectedPoolId.value)
         if (pool && pool.count !== undefined) pool.count = Math.max(0, pool.count - 1)
+        void fetchQuota()
         return true
       }
       throw new Error(res.error?.value ? String(res.error.value) : '删除失败')
@@ -257,6 +278,7 @@ export function useWallpapers() {
         if (pool && pool.count !== undefined) {
           pool.count = Math.max(0, pool.count - ids.length)
         }
+        void fetchQuota()
         return true
       }
       throw new Error(res.error?.value ? String(res.error.value) : '批量删除失败')
@@ -327,9 +349,11 @@ export function useWallpapers() {
     pools,
     selectedPoolId,
     wallpapers,
+    quota,
     loading,
     errorMsg,
     fetchPools,
+    fetchQuota,
     createPool,
     updatePool,
     deletePool,

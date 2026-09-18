@@ -9,8 +9,8 @@ import FolderModal from './folder/FolderModal.vue'
 // 文件夹组件接收节点配置、已过滤书签列表与当前宽度。
 const props = defineProps<{ node: WidgetNode; items: Bookmark[]; editing: boolean; width: number }>()
 
-// 书签点击与新增事件。
-const emit = defineEmits<{ editBookmark: [bookmark: Bookmark]; addBookmark: [] }>()
+// 书签点击、新增与数据刷新事件。
+const emit = defineEmits<{ editBookmark: [bookmark: Bookmark]; addBookmark: []; refresh: [] }>()
 
 // 弹窗展开状态。
 const isModalOpen = ref(false)
@@ -100,6 +100,7 @@ function handleContextAction(id: string) {
       :title="node.title"
       :items="items"
       :editing="editing"
+      :folder-node-id="node.id"
       @open-modal="isModalOpen = true"
       @edit-bookmark="emit('editBookmark', $event)"
     />
@@ -220,6 +221,7 @@ function handleContextAction(id: string) {
       @close="isModalOpen = false"
       @edit-bookmark="emit('editBookmark', $event)"
       @add-bookmark="emit('addBookmark')"
+      @refresh="emit('refresh')"
     />
 
     <ContextMenu :position="contextPosition" :items="contextItems" @close="contextPosition = null" @action="handleContextAction" />

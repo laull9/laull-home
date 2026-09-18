@@ -64,12 +64,25 @@ const placeholderText = computed(() => {
 async function triggerFetchSuggestions(text: string) {
   if (debounceTimer) clearTimeout(debounceTimer)
   const trimmed = text.trim()
-  if (!trimmed || trimmed.startsWith("!") || looksLikeUrl(trimmed) || isDropdownOpen.value) {
+  if (!trimmed || looksLikeUrl(trimmed) || isDropdownOpen.value) {
     suggestions.value = []
     isSuggestionsOpen.value = false
     selectedSuggestionIndex.value = -1
     return
   }
+
+  // 若以 ! 开头，进行 Bang 快捷指令联想
+  if (trimmed.startsWith("!")) {
+    const bangQuery = trimmed.slice(1).toLowerCase()
+    const matched = engines.value
+      .filter(e => e.bang && (!bangQuery || e.bang.toLowerCase().startsWith(bangQuery) || e.name.toLowerCase().includes(bangQuery)))
+      .map(e => `!${e.bang} (${e.name})`)
+    suggestions.value = matched
+    isSuggestionsOpen.value = matched.length > 0
+    selectedSuggestionIndex.value = -1
+    return
+  }
+
   debounceTimer = setTimeout(async () => {
     isSuggestionsLoading.value = true
     try {
@@ -215,16 +228,21 @@ function handleKeyDown(event: KeyboardEvent) {
 
 // 直接选中建议词执行搜索。
 function handleSelectSuggestion(keyword: string) {
-  searchQuery.value = keyword
+  const bangMatch = keyword.match(/^(![a-zA-Z0-9_-]+)\s*\(/)
+  const queryToUse = bangMatch && bangMatch[1] ? `${bangMatch[1]} ` : keyword
+  searchQuery.value = queryToUse
+  originalQuery.value = queryToUse
   isSuggestionsOpen.value = false
   selectedSuggestionIndex.value = -1
-  handleSearch()
+  if (!bangMatch) handleSearch()
 }
 
 // 仅填入建议词到搜索框。
 function handleFillSuggestion(keyword: string) {
-  searchQuery.value = keyword
-  originalQuery.value = keyword
+  const bangMatch = keyword.match(/^(![a-zA-Z0-9_-]+)\s*\(/)
+  const queryToUse = bangMatch && bangMatch[1] ? `${bangMatch[1]} ` : keyword
+  searchQuery.value = queryToUse
+  originalQuery.value = queryToUse
   selectedSuggestionIndex.value = -1
 }
 
@@ -264,7 +282,7 @@ function handleSearch() {
 
   const parsed = executeSearch(trimmed)
   let targetUrl = parsed.targetUrl
-  if (parsed.type === "search" && selectedEngine.value) {
+  if (parsed.type === "search" && selectedEngine.value && !parsed.matchedBangEngine) {
     targetUrl = selectedEngine.value.urlTemplate.replace("%s", encodeURIComponent(trimmed))
   }
   if (targetUrl) {
@@ -424,72 +442,21 @@ function handleSearch() {
 }
 
 .search-input {
-  flex: 1;
-  height: 100%;
-  padding: 0 8px;
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
-  color: var(--lh-text);
-  font-size: 15px;
-  outline: none !important;
-  min-width: 0;
+  flex: 1; height: 100%; padding: 0 8px; border: none !important; background: transparent !important;
+  box-shadow: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important;
+  color: var(--lh-text); font-size: 15px; outline: none !important; min-width: 0;
 }
-.search-input:focus {
-  border: none !important;
-  box-shadow: none !important;
-  outline: none !important;
-}
-.search-input::placeholder {
-  color: var(--lh-text-muted);
-}
+.search-input:focus { border: none !important; box-shadow: none !important; outline: none !important; }
+.search-input::placeholder { color: var(--lh-text-muted); }
 
-.btn-clear {
-  background: transparent;
-  border: none;
-  color: var(--lh-text-muted);
-  cursor: pointer;
-  padding: 6px;
-  margin-right: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: var(--lh-radius-full);
-  transition: color 0.15s ease;
-}
+.btn-clear { background: transparent; border: none; color: var(--lh-text-muted); cursor: pointer; padding: 6px; margin-right: 4px; display: flex; align-items: center; justify-content: center; border-radius: var(--lh-radius-full); transition: color 0.15s ease; }
 .btn-clear:hover { color: var(--lh-text); }
 .icon-clear { width: 16px; height: 16px; }
 
-.search-button {
-  width: 40px;
-  height: 40px;
-  margin-right: 6px;
-  border-radius: var(--lh-radius-full);
-  background: var(--lh-accent);
-  color: var(--lh-accent-text);
-  border: none;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
-  flex-shrink: 0;
-}
-.search-button:hover {
-  background: var(--lh-accent-hover);
-  transform: scale(1.04);
-}
+.search-button { width: 40px; height: 40px; margin-right: 6px; border-radius: var(--lh-radius-full); background: var(--lh-accent); color: var(--lh-accent-text); border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease; flex-shrink: 0; }
+.search-button:hover { background: var(--lh-accent-hover); transform: scale(1.04); }
 .icon-search { width: 18px; height: 18px; }
 
-.panel-drop-enter-active,
-.panel-drop-leave-active {
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-}
-.panel-drop-enter-from,
-.panel-drop-leave-to {
-  opacity: 0;
-  transform: translateY(-8px);
-}
+.panel-drop-enter-active, .panel-drop-leave-active { transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.panel-drop-enter-from, .panel-drop-leave-to { opacity: 0; transform: translateY(-8px); }
 </style>

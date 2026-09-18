@@ -11,7 +11,7 @@ export const searchEngineSchema = Type.Object({
   // 搜索建议联想地址模板，包含 %s。
   suggestionUrl: Type.String({ maxLength: 512 }),
   // 快捷 Bang 指令，例如 gh。
-  bang: Type.String({ maxLength: 16 }),
+  bang: Type.String({ maxLength: 16, pattern: '^[a-zA-Z0-9_-]*$' }),
   // 是否为默认搜索引擎。
   isDefault: Type.Boolean(),
   // 排序权重。
@@ -34,7 +34,7 @@ export const createSearchEngineSchema = Type.Object({
   // 搜索建议联想地址模板。
   suggestionUrl: Type.Optional(Type.String({ maxLength: 512 })),
   // 快捷 Bang 指令。
-  bang: Type.Optional(Type.String({ maxLength: 16 })),
+  bang: Type.Optional(Type.String({ maxLength: 16, pattern: '^[a-zA-Z0-9_-]*$' })),
   // 是否设为默认。
   isDefault: Type.Optional(Type.Boolean()),
 }, { additionalProperties: false })
@@ -51,7 +51,7 @@ export const updateSearchEngineSchema = Type.Object({
   // 搜索建议联想地址模板。
   suggestionUrl: Type.Optional(Type.String({ maxLength: 512 })),
   // 快捷 Bang 指令。
-  bang: Type.Optional(Type.String({ maxLength: 16 })),
+  bang: Type.Optional(Type.String({ maxLength: 16, pattern: '^[a-zA-Z0-9_-]*$' })),
   // 是否设为默认。
   isDefault: Type.Optional(Type.Boolean()),
   // 排序权重。
@@ -134,6 +134,8 @@ export interface SearchQueryResult {
   type: "url" | "search"
   // 最终跳转的目标地址。
   targetUrl: string
+  // 若由 Bang 语法匹配触发，记录对应引擎。
+  matchedBangEngine?: SearchEngine
 }
 
 // 解析用户输入的搜索词或网址。
@@ -157,6 +159,7 @@ export function parseSearchQuery(input: string, engines: SearchEngine[]): Search
       return {
         type: "search",
         targetUrl: matchedEngine.urlTemplate.replace("%s", encodeURIComponent(keyword)),
+        matchedBangEngine: matchedEngine,
       }
     }
   }

@@ -35,4 +35,12 @@ export default ts.config(
       ].map(name => [name, 'readonly'])),
     },
   },
+  {
+    files: ['apps/web/public/sw.js'],
+    languageOptions: {
+      globals: Object.fromEntries([
+        'self', 'caches', 'fetch', 'Response', 'URL', 'module',
+      ].map(name => [name, 'readonly'])),
+    },
+  },
 )

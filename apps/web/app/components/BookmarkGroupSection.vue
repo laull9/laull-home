@@ -6,7 +6,6 @@ const props = defineProps<{
   groups: BookmarkGroup[]
   bookmarks: Bookmark[]
   isEditMode: boolean
-  isVisitor: boolean
 }>()
 
 // 组件事件派发。
@@ -29,7 +28,7 @@ function getBookmarksForGroup(groupId: string): Bookmark[] {
   <div class="groups-container">
     <div v-if="groups.length === 0" class="empty-state">
       <p>暂无书签分组</p>
-      <button v-if="!isVisitor" type="button" class="btn-accent" @click="emit('createGroup')">
+      <button type="button" class="btn-accent" @click="emit('createGroup')">
         创建第一个分组
       </button>
     </div>
@@ -37,7 +36,7 @@ function getBookmarksForGroup(groupId: string): Bookmark[] {
     <div v-for="group in groups" :key="group.id" class="group-block">
       <div class="group-header">
         <h3 class="group-title">{{ group.name }}</h3>
-        <div v-if="isEditMode && !isVisitor" class="group-actions">
+        <div v-if="isEditMode" class="group-actions">
           <button type="button" class="btn-group-action" @click="emit('editGroup', group)">重命名</button>
           <button type="button" class="btn-group-action text-danger" @click="emit('deleteGroup', group)">删除</button>
         </div>
@@ -62,7 +61,7 @@ function getBookmarksForGroup(groupId: string): Bookmark[] {
             <span class="bookmark-title" :title="bm.title">{{ bm.title }}</span>
           </a>
 
-          <div v-if="isEditMode && !isVisitor" class="card-edit-overlay">
+          <div v-if="isEditMode" class="card-edit-overlay">
             <button type="button" class="btn-card-edit" title="编辑" @click="emit('editBookmark', bm)">✎</button>
             <button type="button" class="btn-card-del" title="删除" @click="emit('deleteBookmark', bm)">×</button>
           </div>

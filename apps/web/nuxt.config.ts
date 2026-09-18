@@ -6,6 +6,20 @@ export default defineNuxtConfig({
   devtools: { enabled: process.env.NODE_ENV !== 'production' },
   // API 类型依赖仅在编译时使用。
   typescript: { strict: true },
+  // 全局 Head 元数据声明与 PWA 清单链接。
+  app: {
+    head: {
+      title: '我的主页',
+      meta: [
+        { name: 'theme-color', content: '#121316' },
+        { name: 'apple-mobile-web-app-capable', content: 'yes' },
+        { name: 'apple-mobile-web-app-status-bar-style', content: 'black-translucent' },
+      ],
+      link: [
+        { rel: 'manifest', href: '/manifest.webmanifest' },
+      ],
+    },
+  },
   // 后端地址仅供 Nitro 与 SSR 使用，不公开到客户端；默认自动推导，无需外部手动配置。
   runtimeConfig: {
     // 自动跟随内部后端地址，也可通过 NUXT_API_INTERNAL_URL 显式覆盖。

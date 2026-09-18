@@ -11,8 +11,8 @@ import NoteWidget from './widgets/NoteWidget.vue'
 // 渲染器只接收当前空间授权后的书签与分组数据。
 const props = defineProps<{ node: WidgetNode; bookmarks: Bookmark[]; groups: BookmarkGroup[]; editing: boolean; width: number }>()
 
-// 组件数据变更与书签交互事件。
-const emit = defineEmits<{ update: [node: WidgetNode]; editBookmark: [bookmark: Bookmark]; addBookmark: [groupId?: string] }>()
+// 组件数据变更、书签交互与数据刷新事件。
+const emit = defineEmits<{ update: [node: WidgetNode]; editBookmark: [bookmark: Bookmark]; addBookmark: [groupId?: string]; refresh: [] }>()
 
 // 当前时间响应式引用，复用全局时间对齐服务。
 const { now } = useCurrentTime()
@@ -96,6 +96,7 @@ const month = computed(() => {
     :width="width"
     @edit-bookmark="emit('editBookmark', $event)"
     @add-bookmark="emit('addBookmark', node.referenceId)"
+    @refresh="emit('refresh')"
   />
 
   <!-- 倒数纪念日小部件 -->

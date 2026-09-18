@@ -3,6 +3,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import type { Bookmark } from '@laull-home/shared'
 import BookmarkIcon from '../../../BookmarkIcon.vue'
 import ContextMenu from '../../../ContextMenu.vue'
+import { useFolderModalDrag } from '../../../../composables/useFolderModalDrag'
 
 // 沉浸式收纳容器视窗参数。
 const props = defineProps<{
@@ -22,68 +23,44 @@ const emit = defineEmits<{
   refresh: []
 }>()
 
-const { updateBookmark } = useBookmarks()
-const { activeSpaceId } = useSpaces()
-
 // 容器内即时过滤关键字。
 const filterText = ref('')
 // 搜索输入框引用。
 const searchInputRef = ref<HTMLInputElement | null>(null)
-// 正在向外拖拽条目状态。
-const isDraggingOut = ref(false)
-// 外部条目拖入悬浮状态。
-const isDragOver = ref(false)
+// 容器视窗 DOM 节点引用。
+const viewportRef = ref<HTMLElement | null>(null)
+
 // 文件夹弹窗右键菜单。
 const contextPosition = ref<{ x: number; y: number } | null>(null)
 const contextItems = [
   { id: 'add', label: '在此文件夹添加图标' },
 ]
 
-// 拖拽文件夹条目向外移出。
-function handleItemDragStart(event: DragEvent, item: Bookmark) {
-  isDraggingOut.value = true
-  if (event.dataTransfer) {
-    event.dataTransfer.effectAllowed = 'move'
-    event.dataTransfer.setData('text/plain', `folder-item:${props.folderNodeId || ''}:${props.folderGroupId || item.groupId || ''}:${item.id}`)
-  }
-}
-
-// 拖拽结束恢复视窗外观。
-function handleItemDragEnd() {
-  isDraggingOut.value = false
-}
-
-// 悬停在容器视窗上方准备拖入。
-function handleViewportDragOver(event: DragEvent) {
-  event.preventDefault()
-  if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'
-  isDragOver.value = true
-}
-
-// 离开视窗清除高亮。
-function handleViewportDragLeave() {
-  isDragOver.value = false
-}
-
-// 释放外部条目进入当前文件夹。
-async function handleViewportDrop(event: DragEvent) {
-  event.preventDefault()
-  isDragOver.value = false
-  const text = event.dataTransfer?.getData('text/plain') || ''
-  const targetGroupId = props.folderGroupId || (props.items[0]?.groupId ?? '')
-  if (!text || !targetGroupId) return
-
-  let bookmarkId = ''
-  if (text.startsWith('folder-item:')) {
-    bookmarkId = text.split(':')[3] || ''
-  } else if (text.startsWith('new:bookmark:')) {
-    bookmarkId = text.slice(4).split(':')[5] || ''
-  }
-  if (bookmarkId) {
-    await updateBookmark(bookmarkId, activeSpaceId.value, { groupId: targetGroupId })
-    emit('refresh')
-  }
-}
+// 文件夹弹窗拖拽交互与移出桌面编排。
+const {
+  isDraggedOutside,
+  isDragOver,
+  draggingBookmark,
+  dragOverBookmarkId,
+  dragInsertPos,
+  handleItemDragStart,
+  handleItemDragOver,
+  handleItemDragLeave,
+  handleItemDrop,
+  handleItemDragEnd,
+  handleViewportDragOver,
+  handleViewportDragLeave,
+  handleViewportDrop,
+  isRecentDragEnd,
+  cleanup: cleanupDrag,
+} = useFolderModalDrag({
+  folderNodeId: props.folderNodeId,
+  folderGroupId: props.folderGroupId,
+  items: () => props.items,
+  viewportRef,
+  emitClose: () => emit('close'),
+  emitRefresh: () => emit('refresh'),
+})
 
 // 按关键字过滤条目。
 const displayedItems = computed(() => {
@@ -125,8 +102,9 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-// 点击遮罩空白背景退出容器。
+// 点击遮罩空白背景退出容器（拖拽松手 200ms 内屏蔽以防误触发）。
 function onBackdropClick(event: MouseEvent) {
+  if (isRecentDragEnd()) return
   if ((event.target as HTMLElement).classList.contains('container-overlay-backdrop')) {
     emit('close')
   }
@@ -147,6 +125,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('keydown', handleKeydown)
+  cleanupDrag()
 })
 </script>
 
@@ -156,12 +135,13 @@ onUnmounted(() => {
       <div
         v-if="show"
         class="container-overlay-backdrop"
-        :class="{ 'dragging-out': isDraggingOut }"
+        :class="{ 'dragged-outside': isDraggedOutside }"
         role="dialog"
         :aria-label="title || '收纳容器'"
         @click="onBackdropClick"
       >
         <div
+          ref="viewportRef"
           class="container-viewport"
           :class="{ 'drag-target-active': isDragOver }"
           @dragover="handleViewportDragOver"
@@ -224,10 +204,18 @@ onUnmounted(() => {
                 target="_blank"
                 rel="noopener noreferrer"
                 class="grid-item-card"
+                :class="{
+                  'is-dragging': draggingBookmark?.id === item.id,
+                  'drop-before': dragOverBookmarkId === item.id && dragInsertPos === 'before',
+                  'drop-after': dragOverBookmarkId === item.id && dragInsertPos === 'after',
+                }"
                 :title="item.title"
                 data-folder-item="true"
                 draggable="true"
                 @dragstart="handleItemDragStart($event, item)"
+                @dragover="handleItemDragOver($event, item)"
+                @dragleave="handleItemDragLeave($event, item)"
+                @drop="handleItemDrop($event, item)"
                 @dragend="handleItemDragEnd"
                 @click="onItemClick($event, item)"
               >
@@ -270,15 +258,17 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(var(--lh-blur)) saturate(160%);
   transition: opacity 0.2s ease, background-color 0.2s ease, backdrop-filter 0.2s ease;
 }
-.container-overlay-backdrop.dragging-out {
-  background: color-mix(in srgb, #000 12%, transparent);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-  pointer-events: none;
+/* 拖拽出视窗外部时遮罩透明且不拦截指针事件 */
+.container-overlay-backdrop.dragged-outside {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  pointer-events: none !important;
 }
-.container-overlay-backdrop.dragging-out .container-viewport {
-  opacity: 0.45;
-  pointer-events: auto;
+/* 拖拽出视窗外部时视窗主体隐藏并允许事件穿透至底层桌面网格 */
+.container-overlay-backdrop.dragged-outside .container-viewport {
+  opacity: 0 !important;
+  pointer-events: none !important;
 }
 
 /* 灵动容器视窗主体 */
@@ -330,8 +320,11 @@ onUnmounted(() => {
 .viewport-items-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 18px 12px; }
 
 /* 单个条目卡片设计：应用级图标直接浮起高亮，不唤起深色底遮罩 */
-.grid-item-card { display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: inherit; padding: 6px 4px; border-radius: var(--lh-radius-md); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
+.grid-item-card { display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: inherit; padding: 6px 4px; border-radius: var(--lh-radius-md); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease, background-color 0.15s ease; position: relative; }
 .grid-item-card:hover { transform: translateY(-4px); }
+.grid-item-card.is-dragging { opacity: 0.35; transform: scale(0.92); }
+.grid-item-card.drop-before { box-shadow: -3px 0 0 var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 15%, transparent); }
+.grid-item-card.drop-after { box-shadow: 3px 0 0 var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 15%, transparent); }
 .item-icon-dock { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; box-shadow: none; transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease; }
 .grid-item-card:hover .item-icon-dock { transform: scale(1.1); filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.2)) brightness(1.15); }
 .item-icon { --bookmark-icon-size: 34px; }
