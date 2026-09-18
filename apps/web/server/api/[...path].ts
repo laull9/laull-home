@@ -1,11 +1,10 @@
-// 代理保留 Cookie、Origin 与 Set-Cookie，后端地址不接受请求参数覆盖。
+// 自动将发往前端的 /api/* 请求透明转发至内部后端，无需外部配置反代分流。
 export default defineEventHandler((event) => {
   const config = useRuntimeConfig(event)
-  const path = getRequestURL(event).pathname
-  // 只暴露已约定的 API 版本路径。
-  if (!path.startsWith('/api/v1/')) throw createError({ statusCode: 404, statusMessage: '接口不存在' })
+  const url = getRequestURL(event)
   const target = new URL(config.apiInternalUrl)
-  target.pathname = path
-  target.search = getRequestURL(event).search
+  target.pathname = url.pathname
+  target.search = url.search
   return proxyRequest(event, target.href)
 })
+

@@ -44,7 +44,10 @@ NODE_ENV=production bun apps/server/dist/index.js
 NODE_ENV=production HOST=127.0.0.1 PORT=3000 bun apps/web/.output/server/index.mjs
 ```
 
-以上命令分别运行在两个终端。生产使用进程管理器托管，在 HTTPS 反向代理后运行；只公开入口端口。迁移与数据路径由后端管理，当前后端构建产物需保留仓库目录结构，不能单独移动 dist 文件。Docker 配置尚未实现。
+以上命令分别运行在两个终端。生产使用进程管理器托管，在 HTTPS 反向代理后运行；只公开入口端口。迁移与数据路径由后端管理，当前后端构建产物需保留仓库目录结构，不能单独移动 dist 文件。
+
+Docker 部署支持使用 `compose.yml` 快速拉起容器，支持通过环境变量控制暴露端口与挂载宿主机持久化目录，详见 [Docker 部署指南](../docker/README.md)。
+
 
 ## 文档
 

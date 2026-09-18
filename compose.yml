@@ -1,20 +1,25 @@
+# Docker Compose 生产部署配置
 services:
   laull-home:
     build:
       context: .
       dockerfile: Dockerfile
-    image: laull-home:v0.1.0
+    image: laull-home:latest
     container_name: laull-home
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      # 宿主机绑定地址与对外暴露端口映射，默认 0.0.0.0:3000 -> 容器 3000
+      - "${APP_HOST:-0.0.0.0}:${APP_PORT:-3000}:3000"
     environment:
       - NODE_ENV=production
-      - LAULL_HOME_ORIGIN=${LAULL_HOME_ORIGIN:-http://localhost:3000}
-      - LAULL_HOME_SESSION_DAYS=90
+      # 浏览器访问来源，生产环境必须为真实 HTTPS 来源
+      - LAULL_HOME_ORIGIN=${LAULL_HOME_ORIGIN:-https://localhost:3000}
+      - LAULL_HOME_SESSION_DAYS=${LAULL_HOME_SESSION_DAYS:-90}
+      # SQLite 数据库文件在容器内的绝对路径
+      - LAULL_HOME_DATABASE_PATH=${LAULL_HOME_DATABASE_PATH:-/app/data/laull-home.db}
+      # 数据与静态文件持久化根目录
+      - LAULL_HOME_DATA_DIR=${LAULL_HOME_DATA_DIR:-/app/data}
     volumes:
-      - laull_data:/app/data
+      # 数据持久化挂载：默认挂载宿主机 ./data 目录，支持通过 DATA_PATH 覆盖
+      - ${DATA_PATH:-./data}:/app/data
 
-volumes:
-  laull_data:
-    driver: local
