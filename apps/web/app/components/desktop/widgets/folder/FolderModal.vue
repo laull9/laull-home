@@ -7,14 +7,22 @@ import ContextMenu from '../../../ContextMenu.vue'
 import { useFolderModalDrag } from '../../../../composables/useFolderModalDrag'
 
 // 沉浸式收纳容器视窗参数。
-const props = defineProps<{
-  show: boolean
-  title: string
-  items: Bookmark[]
-  editing: boolean
-  folderNodeId?: string
-  folderGroupId?: string
-}>()
+const props = withDefaults(
+  defineProps<{
+    show: boolean
+    title: string
+    items: Bookmark[]
+    editing: boolean
+    folderNodeId?: string
+    folderGroupId?: string
+    closeOnClickOutside?: boolean
+  }>(),
+  {
+    folderNodeId: undefined,
+    folderGroupId: undefined,
+    closeOnClickOutside: false,
+  },
+)
 
 // 容器视窗关闭、书签编辑与新增事件。
 const emit = defineEmits<{
@@ -164,9 +172,9 @@ function handleKeydown(event: KeyboardEvent) {
   }
 }
 
-// 点击遮罩空白背景退出容器（拖拽松手 200ms 内屏蔽以防误触发）。
+// 点击遮罩空白背景退出容器（默认关闭周围点击退出，仅在配置允许且非拖拽松手时响应）。
 function onBackdropClick(event: MouseEvent) {
-  if (isRecentDragEnd()) return
+  if (!props.closeOnClickOutside || isRecentDragEnd()) return
   if ((event.target as HTMLElement).classList.contains('container-overlay-backdrop')) {
     emit('close')
   }

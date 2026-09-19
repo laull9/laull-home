@@ -108,57 +108,58 @@ export function useBookmarks() {
     return res.data?.iconUrl ?? ""
   }
 
-  // 探测站点 Favicon 图标并缓存（由客户端拉取 SVG 或由服务端缓存位图）。
+  // 探测站点 Favicon 图标并缓存：由客户端在浏览器网络内嗅探下载并自动上传保存。
   async function fetchFavicon(targetUrl: string): Promise<string> {
-    // 1. 若为内网地址，先尝试客户端直接拉取通用 favicon
+    if (!targetUrl) return ""
+    let origin = ""
     try {
-      const u = new URL(targetUrl)
-      const isPrivate = ["localhost", "127.0.0.1"].includes(u.hostname) || /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(u.hostname)
-      if (isPrivate) {
-        for (const path of ["/favicon.ico", "/favicon.svg", "/favicon.png"]) {
-          try {
-            const probeRes = await fetch(new URL(path, u.origin).toString())
-            if (probeRes.ok) {
-              const blob = await probeRes.blob()
-              if (blob.size > 0) {
-                const uploaded = await uploadFavicon(blob)
-                if (uploaded) return uploaded
-              }
-            }
-          } catch {
-            // 忽略客户端直接拉取异常
-          }
+      origin = new URL(targetUrl).origin
+    } catch {
+      // 忽略非法 URL 格式
+    }
+
+    // 1. 整理候选嗅探地址列表
+    const candidates: string[] = []
+    if (origin) {
+      candidates.push(
+        new URL("/favicon.ico", origin).toString(),
+        new URL("/favicon.svg", origin).toString(),
+        new URL("/favicon.png", origin).toString(),
+        new URL("/apple-touch-icon.png", origin).toString(),
+      )
+    }
+
+    // 2. 向服务端请求解析 HTML 页面声明的候选地址或读取已有缓存
+    try {
+      const res = await $api.favicon.fetch.post({ url: targetUrl })
+      if (res.data?.iconUrl) {
+        return res.data.iconUrl
+      }
+      if (res.data?.candidateUrls) {
+        for (const u of res.data.candidateUrls) {
+          if (!candidates.includes(u)) candidates.unshift(u)
         }
+      } else if (res.data?.svgUrl && !candidates.includes(res.data.svgUrl)) {
+        candidates.unshift(res.data.svgUrl)
       }
     } catch {
-      // 忽略 URL 解析异常
+      // 若服务端解析失败（如内网安全拦截），直接由客户端依靠浏览器网络直探
     }
 
-    // 2. 调用服务端探测
-    const res = await $api.favicon.fetch.post({ url: targetUrl })
-    if (res.error) throw new Error(res.error.value?.message ?? "获取图标失败")
-
-    // 3. 若服务端直接返回了已缓存的本地位图路径，直接使用
-    if (res.data?.iconUrl) {
-      return res.data.iconUrl
-    }
-
-    // 4. 若服务端发现了 SVG 图标地址，由客户端拉取后上传至服务端
-    if (res.data?.svgUrl) {
+    // 3. 客户端依次在浏览器端嗅探下载候选图标并自动上传
+    for (const probeUrl of candidates) {
       try {
-        const svgRes = await fetch(res.data.svgUrl)
-        if (svgRes.ok) {
-          const blob = await svgRes.blob()
+        const probeRes = await fetch(probeUrl)
+        if (probeRes.ok) {
+          const blob = await probeRes.blob()
           if (blob.size > 0) {
             const uploaded = await uploadFavicon(blob)
             if (uploaded) return uploaded
           }
         }
       } catch {
-        // 跨域或网络受限时直接返回远程 SVG 地址
-        return res.data.svgUrl
+        // 忽略跨域阻断或单个地址异常
       }
-      return res.data.svgUrl
     }
 
     return ""

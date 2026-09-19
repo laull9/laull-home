@@ -24,8 +24,8 @@ const props = withDefaults(
 // 获取明暗主题状态。
 const { isDark } = useTheme()
 
-// 获取全局 Nuxt API 客户端实例。
-const { $api } = useNuxtApp()
+// 获取图标探测方法。
+const { fetchFavicon } = useBookmarks()
 
 // 全局内存共享的搜索引擎 Favicon 缓存字典。
 const iconCache = useState<Record<string, string>>('lh:engine-favicons', () => ({}))
@@ -75,9 +75,9 @@ async function fetchAndStoreIcon(targetOrigin: string) {
   if (!targetOrigin || iconCache.value[targetOrigin] || fetchingPool.value.has(targetOrigin)) return
   fetchingPool.value.add(targetOrigin)
   try {
-    const res = await $api.favicon.fetch.post({ url: targetOrigin })
-    if (res.data?.iconUrl) {
-      iconCache.value[targetOrigin] = res.data.iconUrl
+    const iconUrl = await fetchFavicon(targetOrigin)
+    if (iconUrl) {
+      iconCache.value[targetOrigin] = iconUrl
       if (import.meta.client) {
         try {
           window.localStorage.setItem('lh_engine_favicons', JSON.stringify(iconCache.value))

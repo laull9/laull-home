@@ -12,7 +12,7 @@ const props = withDefaults(
     engine?: SearchEngine | null
   }>(),
   {
-    closeOnClickOutside: true,
+    closeOnClickOutside: false,
     engine: null,
   },
 )
@@ -56,8 +56,8 @@ const newSuggestionUrl = ref("")
 // 是否设为默认引擎。
 const newIsDefault = ref(false)
 
-// 获取全局 Nuxt API 客户端实例。
-const { $api } = useNuxtApp()
+// 获取图标探测方法。
+const { fetchFavicon } = useBookmarks()
 
 // 全局内存共享的搜索引擎 Favicon 缓存字典。
 const iconCache = useState<Record<string, string>>('lh:engine-favicons', () => ({}))
@@ -133,9 +133,9 @@ async function handleManualFetchIcon() {
   fetchFailed.value = false
 
   try {
-    const res = await $api.favicon.fetch.post({ url: origin, forceRefresh: true })
-    if (res.data?.iconUrl) {
-      const refreshedUrl = `${res.data.iconUrl}?t=${Date.now()}`
+    const iconUrl = await fetchFavicon(origin)
+    if (iconUrl) {
+      const refreshedUrl = `${iconUrl}?t=${Date.now()}`
       iconCache.value[origin] = refreshedUrl
       if (import.meta.client) {
         try {
