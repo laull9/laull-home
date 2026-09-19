@@ -38,6 +38,8 @@ import { createSpacesService } from './modules/spaces/service'
 import { createWallpaperService, WallpaperError } from './modules/wallpapers/service'
 import { broadcastDesktopEvent, createMcpProtocolRoutes, createMcpService } from './modules/mcp'
 import { createIntegrationRoutes, createIntegrationService, IntegrationError, IntegrationHttpError } from './modules/integrations'
+import { createThemePackageService, createThemeRoutes, ThemePackageError } from './modules/themes'
+import { createBackupService, createBackupRoutes, BackupError } from './modules/backups'
 
 // 检查请求来源是否属于受信任的站点或本地开发环境。
 export function isTrustedOrigin(originHeader: string | null | undefined, refererHeader: string | null | undefined, configOrigin: string): boolean {
@@ -82,6 +84,8 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
   const wallpaperService = createWallpaperService(db, config.dataDir)
   const mcpService = createMcpService(db)
   const integrationService = createIntegrationService(db, config.masterKey ?? 'laull-home-default-master-key-32b')
+  const themePackageService = createThemePackageService(db, config.dataDir)
+  const backupService = createBackupService(db, config.dataDir)
   const cookieOptions = {
     // 限制 Cookie 只能由 HTTP 读取。
     httpOnly: true,
@@ -116,7 +120,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
         if (error.status === 409) return status(409, body)
         return status(429, body)
       }
-      if (error instanceof BookmarkError || error instanceof SearchEngineError || error instanceof FaviconError || error instanceof WallpaperError || error instanceof IntegrationError || error instanceof IntegrationHttpError) {
+      if (error instanceof BookmarkError || error instanceof SearchEngineError || error instanceof FaviconError || error instanceof WallpaperError || error instanceof IntegrationError || error instanceof IntegrationHttpError || error instanceof ThemePackageError || error instanceof BackupError) {
         return status(error.status, { code: 'BUSINESS_ERROR', message: error.message })
       }
       if (code === 'VALIDATION') {
@@ -392,6 +396,10 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
     .delete('/mcp/key', ({ user }) => ({ success: mcpService.revokeKey(user.id) }))
     // 装配受控微服务接入路由。
     .use(createIntegrationRoutes({ integrationService, spacesService: spaces, authService: auth }))
+    // 装配主题包导入导出路由。
+    .use(createThemeRoutes({ themeService: themePackageService, authService: auth }))
+    // 装配数据快照与备份恢复路由。
+    .use(createBackupRoutes({ backupService, authService: auth }))
 }
 
 // 前端只导入此类型，禁止引入后端运行时代码。

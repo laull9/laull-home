@@ -282,6 +282,13 @@ export const migrations = [{
       updated_at INTEGER NOT NULL
     ) STRICT;
   `,
+}, {
+  // 迁移版本 14：用户设置表增加受控 iframe 允许域名白名单列表。
+  version: 14,
+  // 增加 iframe_allowlist 列，默认空数组 JSON。
+  sql: `
+    ALTER TABLE user_settings ADD COLUMN iframe_allowlist TEXT NOT NULL DEFAULT '[]';
+  `,
 }]
 
 

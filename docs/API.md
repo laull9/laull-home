@@ -87,3 +87,23 @@ POST /api/v1/desktop/:spaceId/merge 接收 desktop、sourceId、targetId，将�
 
 本地标准输入输出模式直接运行 `bun run mcp`，与外部 AI 客户端（如 Claude Desktop）零网络延迟直接交互。
 
+## 主题包管理 (Themes)
+
+| 方法 | 路径 | 认证 | 请求与响应 |
+| --- | --- | --- | --- |
+| POST | /themes/validate | Session | `{ file }` (ZIP) → `{ valid: true, manifest }` 安全只读预检 |
+| POST | /themes/import | Session | `{ file, apply? }` (ZIP) → `{ success: true, manifest, wallpaperUrl }` 导入并应用主题包 |
+| GET | /themes/export | Session | `?name=...` → 二进制 ZIP 下载，导出当前主题配置、CSS 与本地壁纸 |
+
+## 数据备份与快照 (Backups)
+
+| 方法 | 路径 | 认证 | 请求与响应 |
+| --- | --- | --- | --- |
+| GET | /backups | Session | `{ snapshots: [...], totalSizeBytes, retentionPolicy }` 列出已有快照及保留策略 |
+| POST | /backups/snapshot | Session | `{ includeSecrets?, encryptionPassword? }` → `{ success: true, filename, sizeBytes, manifest }` 创建一致性快照 |
+| GET | /backups/download/:filename | Session | 二进制归档下载（ZIP 或 ENC） |
+| DELETE | /backups/:filename | Session | `{ success: true }` 删除指定快照 |
+| POST | /backups/verify | Session | `{ filename, password? }` → 恢复演练与完整性校验结果 |
+| POST | /backups/verify-upload | Session | `{ file, password? }` → 外部备份包演练与完整性校验 |
+| POST | /backups/prune | Session | `{ maxSnapshots?, maxAgeDays?, maxTotalSizeBytes? }` → 手动执行保留策略修剪 |
+

@@ -23,6 +23,7 @@ export function createSettingsService(db: AppDatabase) {
         customCss: userSettings.customCss,
         themeConfig: userSettings.themeConfig,
         allowDragWithoutEdit: userSettings.allowDragWithoutEdit,
+        iframeAllowlist: userSettings.iframeAllowlist,
       }).from(userSettings).where(eq(userSettings.userId, userId)).get()
       return {
         ...row,
@@ -32,6 +33,7 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperFitMode: row?.wallpaperFitMode ?? 'cover',
         themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row?.themeConfig ?? '{}') },
         allowDragWithoutEdit: row?.allowDragWithoutEdit !== undefined ? Boolean(row.allowDragWithoutEdit) : true,
+        iframeAllowlist: JSON.parse(row?.iframeAllowlist ?? '[]'),
       } as HomeSettings
     },
     // Drizzle 完成版本比较与写入；冲突返回空值。
@@ -50,6 +52,7 @@ export function createSettingsService(db: AppDatabase) {
         ...(value.activeWallpaperPoolId !== undefined ? { activeWallpaperPoolId: value.activeWallpaperPoolId } : {}),
         ...(value.wallpaperFitMode !== undefined ? { wallpaperFitMode: value.wallpaperFitMode } : {}),
         ...(value.allowDragWithoutEdit !== undefined ? { allowDragWithoutEdit: value.allowDragWithoutEdit ? 1 : 0 } : {}),
+        ...(value.iframeAllowlist !== undefined ? { iframeAllowlist: JSON.stringify(value.iframeAllowlist) } : {}),
         customCss: value.customCss ?? '',
         ...(value.themeConfig ? { themeConfig: JSON.stringify(value.themeConfig) } : {}),
         revision: sql`${userSettings.revision} + 1`,
@@ -70,6 +73,7 @@ export function createSettingsService(db: AppDatabase) {
         customCss: userSettings.customCss,
         themeConfig: userSettings.themeConfig,
         allowDragWithoutEdit: userSettings.allowDragWithoutEdit,
+        iframeAllowlist: userSettings.iframeAllowlist,
       }).all()
       const row = rows[0]
       return row ? {
@@ -80,6 +84,7 @@ export function createSettingsService(db: AppDatabase) {
         wallpaperFitMode: row.wallpaperFitMode ?? 'cover',
         themeConfig: { ...DEFAULT_THEME, ...JSON.parse(row.themeConfig) },
         allowDragWithoutEdit: row.allowDragWithoutEdit !== undefined ? Boolean(row.allowDragWithoutEdit) : true,
+        iframeAllowlist: JSON.parse(row.iframeAllowlist ?? '[]'),
       } as HomeSettings : null
     },
   }

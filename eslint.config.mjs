@@ -32,6 +32,7 @@ export default ts.config(
         'HTMLAnchorElement', 'HTMLDialogElement', 'HTMLImageElement', 'HTMLTextAreaElement', 'Event', 'BeforeUnloadEvent',
         'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
         'requestAnimationFrame', 'useCurrentTime', 'useHead',
+        'FormData', 'useAsyncData',
       ].map(name => [name, 'readonly'])),
     },
   },

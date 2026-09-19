@@ -4,6 +4,8 @@ export * from './theme'
 export * from './wallpaper'
 export * from './mcp'
 export * from './integration'
+export * from './sanitize'
+export * from './backup'
 import { Type, type Static } from '@sinclair/typebox'
 
 // 登录输入限制用于前后端一致校验。
@@ -48,6 +50,8 @@ export const settingsSchema = Type.Object({
   customCss: Type.Optional(Type.String({ maxLength: 32768 })),
   // 未进入编辑模式时是否允许拖动图标链接改位置（默认开启）。
   allowDragWithoutEdit: Type.Optional(Type.Boolean()),
+  // 受控 iframe 允许嵌入的域名白名单列表。
+  iframeAllowlist: Type.Optional(Type.Array(Type.String({ maxLength: 100 }))),
 }, { additionalProperties: false })
 
 // 设置接口使用同一份运行时结构推导类型。

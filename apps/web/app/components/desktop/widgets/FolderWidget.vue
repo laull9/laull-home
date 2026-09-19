@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import type { Bookmark, WidgetNode } from '@laull-home/shared'
+import { useBookmarks } from '../../../composables/useBookmarks'
 import BookmarkIcon from '../../BookmarkIcon.vue'
 import ContextMenu from '../../ContextMenu.vue'
 import FolderLaunchpad from './folder/FolderLaunchpad.vue'
@@ -16,13 +17,30 @@ const emit = defineEmits<{ editBookmark: [bookmark: Bookmark]; addBookmark: []; 
 const isModalOpen = ref(false)
 // 搜索过滤字符串。
 const searchQuery = ref('')
-// 文件夹快捷菜单位置。
+// 文件夹及书签快捷菜单位置。
 const contextPosition = ref<{ x: number; y: number } | null>(null)
-// 快捷菜单项。
-const contextItems = [
-  { id: 'add', label: '在此文件夹添加图标' },
-  { id: 'open', label: '展开全部内容' },
-]
+// 当前右键命中的书签。
+const contextBookmark = ref<Bookmark | null>(null)
+// 书签删除与更新接口。
+const { deleteBookmark } = useBookmarks()
+
+// 根据右键对象动态计算快捷菜单项。
+const contextItems = computed(() => {
+  if (contextBookmark.value) {
+    return [
+      { id: 'open-new-tab', label: '在新标签页打开' },
+      { id: 'copy-link', label: '复制链接' },
+      { id: 'edit-bookmark', label: '编辑此书签' },
+      { id: 'delete-bookmark', label: '删除此书签' },
+      { id: 'add', label: '在此文件夹添加图标' },
+      { id: 'open', label: '展开全部内容' },
+    ]
+  }
+  return [
+    { id: 'add', label: '在此文件夹添加图标' },
+    { id: 'open', label: '展开全部内容' },
+  ]
+})
 
 // 按关键词过滤书签列表。
 const filteredItems = computed(() => {
@@ -31,8 +49,9 @@ const filteredItems = computed(() => {
   return props.items.filter(item => item.title.toLowerCase().includes(q) || item.url.toLowerCase().includes(q))
 })
 
-// 书签点击处理。
+// 书签点击处理：阻止事件向外冒泡至文件夹根容器。
 function handleItemClick(event: MouseEvent, item: Bookmark) {
+  event.stopPropagation()
   if (props.editing) {
     event.preventDefault()
     emit('editBookmark', item)
@@ -47,27 +66,71 @@ function handleItemDragStart(event: DragEvent, item: Bookmark) {
   }
 }
 
-// 点击文件夹小部件空白区域或标题打开详情视窗。
+// 点击文件夹小部件空白区域或标题打开详情视窗，排除内部条目与交互控件。
 function handleRootClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null
-  if (target?.closest('input, textarea, select, .widget-tools')) return
+  if (target?.closest('a, button, input, textarea, select, .widget-tools, [data-folder-item]')) return
   isModalOpen.value = true
 }
 
-// 文件夹非编辑态右键菜单。
+// 书签条目右键快捷菜单。
+function handleBookmarkContextMenu(event: MouseEvent, item: Bookmark) {
+  event.preventDefault()
+  event.stopPropagation()
+  contextBookmark.value = item
+  contextPosition.value = { x: event.clientX, y: event.clientY }
+}
+
+// 文件夹非编辑态空白区域右键菜单。
 function handleContextMenu(event: MouseEvent) {
   if (props.editing) return
   event.preventDefault()
   event.stopPropagation()
+  contextBookmark.value = null
   contextPosition.value = { x: event.clientX, y: event.clientY }
 }
 
-// 响应文件夹快捷菜单操作。
-function handleContextAction(id: string) {
-  if (id === 'add') {
-    emit('addBookmark')
-  } else if (id === 'open') {
-    isModalOpen.value = true
+// 响应文件夹及书签快捷菜单操作。
+async function handleContextAction(id: string) {
+  const currentBookmark = contextBookmark.value
+  contextPosition.value = null
+  try {
+    if (id === 'open-new-tab' && currentBookmark) {
+      window.open(currentBookmark.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    if (id === 'copy-link' && currentBookmark) {
+      try {
+        if (typeof window !== 'undefined' && window.navigator?.clipboard) {
+          await window.navigator.clipboard.writeText(currentBookmark.url)
+        }
+      } catch {
+        // 忽略剪贴板写入异常。
+      }
+      return
+    }
+    if (id === 'edit-bookmark' && currentBookmark) {
+      emit('editBookmark', currentBookmark)
+      return
+    }
+    if (id === 'delete-bookmark' && currentBookmark) {
+      if (confirm(`确定删除书签“${currentBookmark.title}”吗？`)) {
+        try {
+          await deleteBookmark(currentBookmark.id, currentBookmark.spaceId)
+          emit('refresh')
+        } catch (err) {
+          console.error('删除书签失败', err)
+        }
+      }
+      return
+    }
+    if (id === 'add') {
+      emit('addBookmark')
+    } else if (id === 'open') {
+      isModalOpen.value = true
+    }
+  } finally {
+    contextBookmark.value = null
   }
 }
 </script>
@@ -103,6 +166,7 @@ function handleContextAction(id: string) {
       :folder-node-id="node.id"
       @open-modal="isModalOpen = true"
       @edit-bookmark="emit('editBookmark', $event)"
+      @bookmark-contextmenu="handleBookmarkContextMenu"
     />
 
     <!-- 紧凑横滑书架模式 (shelf) -->
@@ -125,7 +189,8 @@ function handleContextAction(id: string) {
           data-folder-item="true"
           draggable="true"
           @dragstart="handleItemDragStart($event, item)"
-          @click="handleItemClick($event, item)"
+          @click.stop="handleItemClick($event, item)"
+          @contextmenu.prevent.stop="handleBookmarkContextMenu($event, item)"
         >
           <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="shelf-icon" />
           <span class="shelf-label">{{ item.title }}</span>
@@ -160,7 +225,8 @@ function handleContextAction(id: string) {
           data-folder-item="true"
           draggable="true"
           @dragstart="handleItemDragStart($event, item)"
-          @click="handleItemClick($event, item)"
+          @click.stop="handleItemClick($event, item)"
+          @contextmenu.prevent.stop="handleBookmarkContextMenu($event, item)"
         >
           <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="folder-icon" />
           <span class="folder-label">{{ item.title }}</span>
@@ -197,7 +263,8 @@ function handleContextAction(id: string) {
             data-folder-item="true"
             draggable="true"
             @dragstart="handleItemDragStart($event, item)"
-            @click="handleItemClick($event, item)"
+            @click.stop="handleItemClick($event, item)"
+            @contextmenu.prevent.stop="handleBookmarkContextMenu($event, item)"
           >
             <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="drawer-icon" />
             <span class="drawer-label">{{ item.title }}</span>
@@ -368,17 +435,13 @@ function handleContextAction(id: string) {
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--lh-text-secondary) 25%, transparent) transparent;
 }
-.drawer-body::-webkit-scrollbar {
-  width: 4px;
-}
-.drawer-body::-webkit-scrollbar-track {
-  background: transparent;
-}
-.drawer-body::-webkit-scrollbar-thumb {
+.drawer-body::-webkit-scrollbar, .folder-grid::-webkit-scrollbar { width: 4px; }
+.drawer-body::-webkit-scrollbar-track, .folder-grid::-webkit-scrollbar-track { background: transparent; }
+.drawer-body::-webkit-scrollbar-thumb, .folder-grid::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--lh-text-secondary) 25%, transparent);
   border-radius: 9999px;
 }
-.drawer-body::-webkit-scrollbar-thumb:hover {
+.drawer-body::-webkit-scrollbar-thumb:hover, .folder-grid::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--lh-text-secondary) 50%, transparent);
 }
 .drawer-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(58px, 1fr)); gap: 8px; padding-bottom: 4px; }
@@ -409,19 +472,6 @@ function handleContextAction(id: string) {
   padding-right: 2px;
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--lh-text-secondary) 25%, transparent) transparent;
-}
-.folder-grid::-webkit-scrollbar {
-  width: 4px;
-}
-.folder-grid::-webkit-scrollbar-track {
-  background: transparent;
-}
-.folder-grid::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--lh-text-secondary) 25%, transparent);
-  border-radius: 9999px;
-}
-.folder-grid::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--lh-text-secondary) 50%, transparent);
 }
 .folder-item {
   display: flex; flex-direction: column; align-items: center; gap: 4px; text-decoration: none;

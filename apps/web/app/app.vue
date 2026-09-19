@@ -147,6 +147,20 @@ body {
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
+/* 设置视图下全屏固定，避免双滚动条并保障侧边栏静止 */
+.app-root.settings-view {
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+}
+
+@media (max-width: 680px) {
+  .app-root.settings-view {
+    height: auto;
+    overflow: visible;
+  }
+}
+
 /* 壁纸、暗化和设置页主题遮罩依次叠放，主页保留壁纸原貌不设额外遮罩。 */
 .wallpaper-layer, .wallpaper-shade, .wallpaper-tint { position: fixed; inset: 0; pointer-events: none; }
 .wallpaper-layer { z-index: -3; }

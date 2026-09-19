@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue'
 import type { Bookmark } from '@laull-home/shared'
+import { useBookmarks } from '../../../../composables/useBookmarks'
 import BookmarkIcon from '../../../BookmarkIcon.vue'
 import ContextMenu from '../../../ContextMenu.vue'
 import { useFolderModalDrag } from '../../../../composables/useFolderModalDrag'
@@ -30,11 +31,28 @@ const searchInputRef = ref<HTMLInputElement | null>(null)
 // 容器视窗 DOM 节点引用。
 const viewportRef = ref<HTMLElement | null>(null)
 
-// 文件夹弹窗右键菜单。
+// 文件夹弹窗及书签右键菜单位置。
 const contextPosition = ref<{ x: number; y: number } | null>(null)
-const contextItems = [
-  { id: 'add', label: '在此文件夹添加图标' },
-]
+// 当前右键命中的书签。
+const contextBookmark = ref<Bookmark | null>(null)
+// 书签数据管理接口。
+const { deleteBookmark } = useBookmarks()
+
+// 根据右键对象动态计算弹窗快捷菜单项。
+const contextItems = computed(() => {
+  if (contextBookmark.value) {
+    return [
+      { id: 'open-new-tab', label: '在新标签页打开' },
+      { id: 'copy-link', label: '复制链接' },
+      { id: 'edit-bookmark', label: '编辑此书签' },
+      { id: 'delete-bookmark', label: '删除此书签' },
+      { id: 'add', label: '在此文件夹添加图标' },
+    ]
+  }
+  return [
+    { id: 'add', label: '在此文件夹添加图标' },
+  ]
+})
 
 // 文件夹弹窗拖拽交互与移出桌面编排。
 const {
@@ -79,17 +97,61 @@ function onItemClick(event: MouseEvent, item: Bookmark) {
   }
 }
 
-// 文件夹视窗内右键快捷菜单。
+// 书签条目右键快捷菜单。
+function handleBookmarkContextMenu(event: MouseEvent, item: Bookmark) {
+  event.preventDefault()
+  event.stopPropagation()
+  contextBookmark.value = item
+  contextPosition.value = { x: event.clientX, y: event.clientY }
+}
+
+// 文件夹视窗内空白区域右键快捷菜单。
 function handleContextMenu(event: MouseEvent) {
   event.preventDefault()
   event.stopPropagation()
+  contextBookmark.value = null
   contextPosition.value = { x: event.clientX, y: event.clientY }
 }
 
 // 响应快捷操作。
-function handleContextAction(id: string) {
-  if (id === 'add') {
-    emit('addBookmark')
+async function handleContextAction(id: string) {
+  const currentBookmark = contextBookmark.value
+  contextPosition.value = null
+  try {
+    if (id === 'open-new-tab' && currentBookmark) {
+      window.open(currentBookmark.url, '_blank', 'noopener,noreferrer')
+      return
+    }
+    if (id === 'copy-link' && currentBookmark) {
+      try {
+        if (typeof window !== 'undefined' && window.navigator?.clipboard) {
+          await window.navigator.clipboard.writeText(currentBookmark.url)
+        }
+      } catch {
+        // 忽略剪贴板写入异常。
+      }
+      return
+    }
+    if (id === 'edit-bookmark' && currentBookmark) {
+      emit('editBookmark', currentBookmark)
+      return
+    }
+    if (id === 'delete-bookmark' && currentBookmark) {
+      if (confirm(`确定删除书签“${currentBookmark.title}”吗？`)) {
+        try {
+          await deleteBookmark(currentBookmark.id, currentBookmark.spaceId)
+          emit('refresh')
+        } catch (err) {
+          console.error('删除书签失败', err)
+        }
+      }
+      return
+    }
+    if (id === 'add') {
+      emit('addBookmark')
+    }
+  } finally {
+    contextBookmark.value = null
   }
 }
 
@@ -218,6 +280,7 @@ onUnmounted(() => {
                 @drop="handleItemDrop($event, item)"
                 @dragend="handleItemDragEnd"
                 @click="onItemClick($event, item)"
+                @contextmenu.prevent.stop="handleBookmarkContextMenu($event, item)"
               >
                 <div class="item-icon-dock">
                   <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="item-icon" />

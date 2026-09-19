@@ -63,6 +63,8 @@ export const userSettings = sqliteTable('user_settings', {
   wallpaperFitMode: text('wallpaper_fit_mode').notNull().default('cover'),
   // 未进入编辑模式时是否允许拖动图标链接改位置：0 关闭，1 开启。
   allowDragWithoutEdit: integer('allow_drag_without_edit').notNull().default(1),
+  // 受控 iframe 允许嵌入的域名白名单 JSON 数组。
+  iframeAllowlist: text('iframe_allowlist').notNull().default('[]'),
   // 更新时间戳。
   updatedAt: integer('updated_at').notNull(),
 })

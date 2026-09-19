@@ -46,7 +46,7 @@ onUnmounted(() => { document.removeEventListener('pointerdown', outside); window
 
 <template>
   <Teleport to="body"><div v-if="position" ref="menu" class="context-menu" role="menu" tabindex="-1" :style="{ ...location, visibility: isVisible ? 'visible' : 'hidden' }" @keydown="keyboard" @contextmenu.prevent>
-    <button v-for="item in items" :key="item.id" type="button" role="menuitem" @click="close(); emit('action', item.id)">{{ item.label }}</button>
+    <button v-for="item in items" :key="item.id" type="button" role="menuitem" @click.stop="emit('action', item.id); close()">{{ item.label }}</button>
   </div></Teleport>
 </template>
 

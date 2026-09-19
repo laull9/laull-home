@@ -108,3 +108,22 @@ export function scopedCss(css: string, scope: string): string {
 
 // 主题导入只接受完整的当前版本。
 export function isThemeConfig(value: unknown): value is ThemeConfig { return Value.Check(themeConfigSchema, value) }
+
+// 主题包清单结构校验规则。
+export const themePackageManifestSchema = Type.Object({
+  name: Type.String({ minLength: 1, maxLength: 50 }),
+  version: Type.Optional(Type.String({ maxLength: 20 })),
+  description: Type.Optional(Type.String({ maxLength: 200 })),
+  author: Type.Optional(Type.String({ maxLength: 50 })),
+  themeConfig: themeConfigSchema,
+  customCss: Type.Optional(Type.String({ maxLength: 32768 })),
+  wallpaperFile: Type.Optional(Type.String({ maxLength: 100 })),
+}, { additionalProperties: false })
+
+// 主题包清单类型。
+export type ThemePackageManifest = Static<typeof themePackageManifestSchema>
+
+// 检查是否为合法的主题包清单。
+export function isThemePackageManifest(value: unknown): value is ThemePackageManifest {
+  return Value.Check(themePackageManifestSchema, value)
+}

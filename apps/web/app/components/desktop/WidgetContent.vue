@@ -8,6 +8,7 @@ import CountdownWidget from './widgets/CountdownWidget.vue'
 import TodoWidget from './widgets/TodoWidget.vue'
 import NoteWidget from './widgets/NoteWidget.vue'
 import ServiceWidget from './widgets/ServiceWidget.vue'
+import IframeWidget from './widgets/IframeWidget.vue'
 
 // 渲染器只接收当前空间授权后的书签与分组数据。
 const props = defineProps<{ node: WidgetNode; bookmarks: Bookmark[]; groups: BookmarkGroup[]; editing: boolean; width: number }>()
@@ -143,6 +144,15 @@ const month = computed(() => {
     :node="node"
     :editing="editing"
     :width="width"
+  />
+
+  <!-- 网页嵌入小部件 -->
+  <IframeWidget
+    v-else-if="node.type === 'iframe'"
+    :node="node"
+    :editing="editing"
+    :width="width"
+    @update="emit('update', $event)"
   />
 
   <!-- 缺失引用提示 -->

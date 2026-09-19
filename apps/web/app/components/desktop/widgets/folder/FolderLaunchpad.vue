@@ -11,10 +11,11 @@ const props = defineProps<{
   folderNodeId?: string
 }>()
 
-// 展开完整弹窗或编辑单条书签事件。
+// 展开完整弹窗、编辑单条书签或书签右键事件。
 const emit = defineEmits<{
   openModal: []
   editBookmark: [bookmark: Bookmark]
+  bookmarkContextmenu: [event: MouseEvent, bookmark: Bookmark]
 }>()
 
 // 九宫格显示的前 8 个书签。
@@ -22,12 +23,19 @@ const launchpadDirectItems = computed(() => props.items.slice(0, 8))
 // 第 9 个格子超出的书签数量。
 const launchpadOverflowCount = computed(() => Math.max(0, props.items.length - 8))
 
-// 点击书签交互处理。
+// 点击书签交互处理：阻止事件向外冒泡至文件夹根容器。
 function onItemClick(event: MouseEvent, item: Bookmark) {
+  event.stopPropagation()
   if (props.editing) {
     event.preventDefault()
     emit('editBookmark', item)
   }
+}
+// 书签右键交互处理。
+function onItemContextMenu(event: MouseEvent, item: Bookmark) {
+  event.preventDefault()
+  event.stopPropagation()
+  emit('bookmarkContextmenu', event, item)
 }
 // 拖动文件夹内图标移出到桌面。
 function handleItemDragStart(event: DragEvent, item: Bookmark) {
@@ -38,10 +46,10 @@ function handleItemDragStart(event: DragEvent, item: Bookmark) {
   }
 }
 
-// 点击九宫格空白区域展开详情视窗。
+// 点击九宫格空白区域展开详情视窗，排除内部条目与交互控件。
 function handleRootClick(event: MouseEvent) {
   const target = event.target as HTMLElement | null
-  if (target?.closest('input, textarea, select, .widget-tools')) return
+  if (target?.closest('a, button, input, textarea, select, .widget-tools, [data-folder-item]')) return
   emit('openModal')
 }
 </script>
@@ -67,7 +75,8 @@ function handleRootClick(event: MouseEvent) {
         data-folder-item="true"
         draggable="true"
         @dragstart="handleItemDragStart($event, item)"
-        @click="onItemClick($event, item)"
+        @click.stop="onItemClick($event, item)"
+        @contextmenu.prevent.stop="onItemContextMenu($event, item)"
       >
         <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="launchpad-icon" />
         <span class="launchpad-label">{{ item.title }}</span>

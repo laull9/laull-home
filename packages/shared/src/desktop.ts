@@ -27,6 +27,7 @@ export const widgetSchema = Type.Object({
     Type.Literal('search'), Type.Literal('bookmark'), Type.Literal('folder'),
     Type.Literal('note'), Type.Literal('clock'), Type.Literal('calendar'),
     Type.Literal('countdown'), Type.Literal('todo'), Type.Literal('service'),
+    Type.Literal('iframe'),
   ]),
   title: Type.String({ minLength: 1, maxLength: 80 }),
   content: Type.String({ maxLength: 8000 }), referenceId: Type.String({ maxLength: 64 }),
@@ -71,6 +72,7 @@ export const WIDGET_CATALOG = [
   { type: 'todo', title: '待办清单', category: 'tools', w: 2, h: 2, desc: '桌面随手勾选待办任务' },
   { type: 'note', title: '便签', category: 'tools', w: 2, h: 2, desc: '桌面便笺与备忘草稿' },
   { type: 'service', title: '微服务卡片', category: 'services', w: 2, h: 2, desc: '呈现自托管微服务指标与动作' },
+  { type: 'iframe', title: '网页嵌入', category: 'tools', w: 4, h: 3, desc: '受控沙箱嵌入外部网页或看板' },
 ] as const
 // 创建继承全局主题的节点。
 export function newWidget(type: WidgetNode['type'], id: string, variant?: string): WidgetNode {

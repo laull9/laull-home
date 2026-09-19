@@ -4,6 +4,8 @@ import { type SessionItem } from '@laull-home/shared'
 import AlertModal from '../components/AlertModal.vue'
 import McpSettings from '../components/McpSettings.vue'
 import IntegrationSettings from '../components/IntegrationSettings.vue'
+import ThemePackageSettings from '../components/ThemePackageSettings.vue'
+import BackupSettings from '../components/BackupSettings.vue'
 
 // 启用身份鉴权守卫。
 definePageMeta({
@@ -16,7 +18,17 @@ const { setupPrivacyPassword } = useSpaces()
 // 分页由地址参数保留，刷新和浏览器前进后退可恢复。
 const route = useRoute()
 // 设置导航按使用目的分组。
-const pages = [{ id: 'appearance', name: '外观' }, { id: 'wallpaper', name: '壁纸' }, { id: 'search', name: '搜索' }, { id: 'account', name: '账号' }, { id: 'privacy', name: '隐私' }, { id: 'devices', name: '设备' }, { id: 'integrations', name: '微服务' }, { id: 'mcp', name: '开发者 / MCP' }]
+const pages = [
+  { id: 'appearance', name: '外观' },
+  { id: 'wallpaper', name: '壁纸' },
+  { id: 'search', name: '搜索' },
+  { id: 'account', name: '账号' },
+  { id: 'privacy', name: '隐私' },
+  { id: 'devices', name: '设备' },
+  { id: 'integrations', name: '微服务' },
+  { id: 'mcp', name: '开发者 / MCP' },
+  { id: 'backup', name: '备份与恢复' },
+]
 const page = computed(() => pages.find(item => item.id === route.query.page)?.id ?? 'appearance')
 const { draft, ready, state, message, chooseTheme, chooseColor, retry, load } = useSettingsDraft()
 
@@ -155,6 +167,14 @@ async function handleRevokeOthers() {
     sessionsMsg.value = '撤销其他设备失败'
   }
 }
+
+// 引用右侧内容滚动容器。
+const contentRef = ref<HTMLElement | null>(null)
+
+// 切换分页时重置右侧内容滚动位置至顶部。
+watch(page, () => {
+  contentRef.value?.scrollTo({ top: 0, behavior: 'instant' })
+})
 </script>
 
 <template>
@@ -170,10 +190,11 @@ async function handleRevokeOthers() {
       <nav class="settings-nav" aria-label="设置分页">
         <NuxtLink v-for="item in pages" :key="item.id" :to="{ path: '/settings', query: { page: item.id } }" :aria-current="page === item.id ? 'page' : undefined">{{ item.name }}</NuxtLink>
       </nav>
-      <main class="content">
+      <main ref="contentRef" class="content">
         <div class="page-heading"><h2>{{ pages.find(item => item.id === page)?.name }}</h2><span role="status" :class="{ 'error-text': state === 'error' }">{{ message }}</span></div>
         <div v-if="state === 'error'" class="recovery"><button v-if="ready" type="button" @click="retry">重试保存</button><button type="button" @click="reloadSettings">重新读取</button></div>
         <SettingsAppearance v-if="ready && (page === 'appearance' || page === 'wallpaper')" v-model="draft" :page="page" @theme="chooseTheme" @color="chooseColor" />
+        <ThemePackageSettings v-if="ready && page === 'appearance'" />
       <section v-if="page === 'account'" class="card">
         <h2>修改用户名</h2>
         <form @submit.prevent="handleUsernameChange">
@@ -278,6 +299,7 @@ async function handleRevokeOthers() {
 
       <IntegrationSettings v-if="page === 'integrations'" />
       <McpSettings v-if="page === 'mcp'" />
+      <BackupSettings v-if="page === 'backup'" />
     </main>
     </div>
 
@@ -300,13 +322,18 @@ async function handleRevokeOthers() {
 .settings-page {
   max-width: 1120px;
   margin: 0 auto;
-  padding: 32px 16px;
+  padding: 32px 16px 0;
   color: var(--lh-text);
+  height: 100vh;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
 }
-.header { margin-bottom: 32px; display: flex; align-items: center; gap: 32px; }
+.header { margin-bottom: 24px; display: flex; align-items: center; gap: 32px; flex-shrink: 0; }
 .header h1 { font-size: 24px; margin: 0; }
-.settings-layout { display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 40px; }
-.settings-nav { display: flex; flex-direction: column; gap: 6px; align-self: start; position: sticky; top: 24px; }
+.settings-layout { display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 40px; flex: 1; min-height: 0; }
+.settings-nav { display: flex; flex-direction: column; gap: 6px; align-self: start; overflow-y: auto; max-height: 100%; }
 .settings-nav a { color: var(--lh-text-secondary); padding: 12px 16px; text-decoration: none; border-radius: var(--lh-radius-sm); }
 .settings-nav a[aria-current=page] { background: var(--lh-accent); color: var(--lh-accent-text); }
 .page-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
@@ -314,7 +341,13 @@ async function handleRevokeOthers() {
 .page-heading span { font-size: 12px; color: var(--lh-text-secondary); }
 .recovery { display: flex; gap: 8px; }
 .session-info { min-width: 0; overflow-wrap: anywhere; }
-@media (max-width: 680px) { .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; } .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; } .settings-nav a { padding: 9px 12px; } }
+@media (max-width: 680px) {
+  .settings-page { height: auto; min-height: 100vh; padding-bottom: 32px; }
+  .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; gap: 4px; max-height: none; }
+  .settings-nav a { padding: 9px 12px; }
+  .content { overflow-y: visible; height: auto; padding-right: 0; padding-bottom: 0; }
+}
 .back-link {
   color: var(--lh-accent);
   text-decoration: none;
@@ -326,6 +359,10 @@ async function handleRevokeOthers() {
   display: flex;
   flex-direction: column;
   gap: 24px;
+  overflow-y: auto;
+  height: 100%;
+  padding-bottom: 32px;
+  padding-right: 6px;
 }
 .card {
   background: var(--lh-surface);

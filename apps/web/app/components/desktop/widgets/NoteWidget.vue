@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import type { WidgetNode } from '@laull-home/shared'
+import { renderSafeMarkdown } from '@laull-home/shared'
 
 // 便签小部件属性定义。
 const props = withDefaults(
@@ -23,6 +24,9 @@ const emit = defineEmits<{
 // 本地可编辑便签文本。
 const content = ref(props.node.content ?? '')
 
+// 是否处于 Markdown 预览状态。
+const isPreview = ref(false)
+
 // 定时器引用用于输入防抖。
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
 
@@ -35,6 +39,11 @@ watch(
     }
   },
 )
+
+// 经过安全清洗的 Markdown HTML。
+const renderedHtml = computed(() => {
+  return renderSafeMarkdown(content.value)
+})
 
 // 立即提交当前便签变更。
 function commitChange() {
@@ -67,6 +76,11 @@ function handleKeydown(event: KeyboardEvent) {
   event.stopPropagation()
 }
 
+// 双击预览区域切换至编辑状态。
+function handleDoubleClickPreview() {
+  isPreview.value = false
+}
+
 // 组件卸载前刷新未提交的输入。
 onBeforeUnmount(() => {
   commitChange()
@@ -76,15 +90,39 @@ onBeforeUnmount(() => {
 <template>
   <div class="note-root widget-content" :class="{ compact: width <= 1 }">
     <div class="note-header">
-      <span class="note-title">{{ node.title || '便签备忘' }}</span>
+      <div class="note-title-wrap">
+        <span class="note-title">{{ node.title || '便签备忘' }}</span>
+        <button
+          v-if="content.length > 0"
+          type="button"
+          class="btn-toggle-mode"
+          :title="isPreview ? '切换为编辑输入' : '切换为 Markdown 预览'"
+          @click="isPreview = !isPreview"
+          @pointerdown.stop
+        >
+          {{ isPreview ? '编辑' : '预览' }}
+        </button>
+      </div>
       <span v-if="content.length > 0" class="note-count">{{ content.length }} 字</span>
     </div>
+
     <div class="note-body">
+      <!-- Markdown 预览模式 -->
+      <div
+        v-if="isPreview && content.length > 0"
+        class="note-preview-scroll"
+        @dblclick="handleDoubleClickPreview"
+      >
+        <div class="markdown-rendered" v-html="renderedHtml" />
+      </div>
+
+      <!-- 纯文本/Markdown 原文编辑模式 -->
       <textarea
+        v-else
         :value="content"
         :aria-label="node.title || '便签内容'"
         maxlength="8000"
-        placeholder="点击输入备忘内容..."
+        placeholder="点击输入备忘内容（支持 Markdown 语法）..."
         class="note-editor"
         @input="handleInput"
         @blur="handleBlur"
@@ -112,6 +150,12 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
+.note-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .note-title {
   font-size: 13px;
   font-weight: 600;
@@ -119,6 +163,21 @@ onBeforeUnmount(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.btn-toggle-mode {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--lh-border);
+  background: var(--lh-surface);
+  color: var(--lh-text-secondary);
+  cursor: pointer;
+}
+
+.btn-toggle-mode:hover {
+  color: var(--lh-text);
+  border-color: var(--lh-accent);
 }
 
 .note-count {
@@ -148,29 +207,69 @@ onBeforeUnmount(() => {
   resize: none;
   outline: none !important;
   padding: 0 !important;
-  margin: 0;
   box-sizing: border-box;
+}
+
+.note-preview-scroll {
+  width: 100%;
+  height: 100%;
   overflow-y: auto;
+  box-sizing: border-box;
+}
+
+.markdown-rendered {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--widget-text, var(--lh-text));
   word-break: break-word;
 }
 
-.note-editor:focus {
-  border: none !important;
-  outline: none !important;
-  box-shadow: none !important;
+.markdown-rendered :deep(h1),
+.markdown-rendered :deep(h2),
+.markdown-rendered :deep(h3),
+.markdown-rendered :deep(h4) {
+  margin: 8px 0 4px;
+  color: var(--widget-text, var(--lh-text));
+  font-weight: 600;
 }
 
-.note-editor::placeholder {
-  color: var(--widget-text, var(--lh-text-muted));
-  opacity: 0.55;
+.markdown-rendered :deep(p) {
+  margin: 4px 0;
 }
 
-.note-root.compact .note-title {
+.markdown-rendered :deep(ul),
+.markdown-rendered :deep(ol) {
+  padding-left: 18px;
+  margin: 4px 0;
+}
+
+.markdown-rendered :deep(blockquote) {
+  margin: 4px 0;
+  padding-left: 8px;
+  border-left: 3px solid var(--lh-border);
+  color: var(--lh-text-secondary);
+}
+
+.markdown-rendered :deep(pre) {
+  background: var(--lh-surface);
+  border: 1px solid var(--lh-border);
+  border-radius: 4px;
+  padding: 6px;
+  overflow-x: auto;
+}
+
+.markdown-rendered :deep(code) {
+  font-family: monospace;
   font-size: 12px;
 }
 
-.note-root.compact .note-editor {
-  font-size: 12px;
-  line-height: 1.5;
+.markdown-rendered :deep(a) {
+  color: var(--lh-accent);
+  text-decoration: underline;
+}
+
+.markdown-rendered :deep(img) {
+  max-width: 100%;
+  border-radius: 4px;
 }
 </style>
