@@ -108,23 +108,39 @@ export function useBookmarks() {
     return res.data?.iconUrl ?? ""
   }
 
-  // 探测站点 Favicon 图标并缓存：由客户端在浏览器网络内嗅探下载并自动上传保存。
+  // 探测站点 Favicon 图标并缓存：优先使用 Favicon.im，并在客户端环境嗅探下载与自动上传保存。
   async function fetchFavicon(targetUrl: string): Promise<string> {
     if (!targetUrl) return ""
     let origin = ""
+    let hostname = ""
     try {
-      origin = new URL(targetUrl).origin
+      const parsed = new URL(targetUrl)
+      origin = parsed.origin
+      hostname = parsed.hostname.toLowerCase()
     } catch {
       // 忽略非法 URL 格式
     }
 
-    // 1. 整理候选嗅探地址列表
+    const isPrivate = !hostname || hostname === "localhost" || hostname === "127.0.0.1" ||
+      hostname.endsWith(".local") || hostname.endsWith(".lan") ||
+      /^192\.168\./.test(hostname) || /^10\./.test(hostname) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
+
+    // 1. 整理候选嗅探地址列表：公网站点优先使用 Favicon.im 高清接口
     const candidates: string[] = []
+    if (hostname && !isPrivate) {
+      candidates.push(`https://favicon.im/${hostname}?larger=true`)
+      candidates.push(`https://favicon.im/${hostname}`)
+      if (hostname.startsWith("www.")) {
+        candidates.push(`https://favicon.im/${hostname.slice(4)}?larger=true`)
+      }
+      candidates.push(`https://icon.horse/icon/${hostname}`)
+      candidates.push(`https://unavatar.io/${hostname}`)
+    }
     if (origin) {
       candidates.push(
         new URL("/favicon.ico", origin).toString(),
-        new URL("/favicon.svg", origin).toString(),
         new URL("/favicon.png", origin).toString(),
+        new URL("/favicon.svg", origin).toString(),
         new URL("/apple-touch-icon.png", origin).toString(),
       )
     }
@@ -137,28 +153,40 @@ export function useBookmarks() {
       }
       if (res.data?.candidateUrls) {
         for (const u of res.data.candidateUrls) {
-          if (!candidates.includes(u)) candidates.unshift(u)
+          if (!candidates.includes(u)) {
+            // Favicon.im 始终保持最前，其余地址按顺序追加
+            if (u.includes("favicon.im")) {
+              candidates.unshift(u)
+            } else {
+              candidates.push(u)
+            }
+          }
         }
       } else if (res.data?.svgUrl && !candidates.includes(res.data.svgUrl)) {
-        candidates.unshift(res.data.svgUrl)
+        candidates.push(res.data.svgUrl)
       }
     } catch {
-      // 若服务端解析失败（如内网安全拦截），直接由客户端依靠浏览器网络直探
+      // 若服务端解析失败（如境外站点无代理或内网拦截），由客户端依靠浏览器网络直探
     }
 
     // 3. 客户端依次在浏览器端嗅探下载候选图标并自动上传
     for (const probeUrl of candidates) {
       try {
-        const probeRes = await fetch(probeUrl)
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 4000)
+        const probeRes = await fetch(probeUrl, { signal: controller.signal })
+        clearTimeout(timer)
+
         if (probeRes.ok) {
           const blob = await probeRes.blob()
-          if (blob.size > 0) {
+          // 过滤空文件及误把错误页 HTML 当成图片的情况
+          if (blob.size > 0 && !blob.type.includes("text/html")) {
             const uploaded = await uploadFavicon(blob)
             if (uploaded) return uploaded
           }
         }
       } catch {
-        // 忽略跨域阻断或单个地址异常
+        // 忽略跨域阻断、超时或单个地址异常
       }
     }
 

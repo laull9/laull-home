@@ -200,3 +200,35 @@ test('服务端仅嗅探候选链接并不直接下载图片，由上传落地�
   const getRes = await request(uploadJson.iconUrl.replace('/api/v1', ''), 'GET')
   expect(getRes.status).toBe(200)
 })
+
+test('服务端探测公网域名优先使用 Favicon.im 并落盘缓存', async () => {
+  const originalFetch = globalThis.fetch
+  try {
+    const requestedUrls: string[] = []
+    // 隔离外部调用，使用内置模拟响应
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const urlStr = input.toString()
+      requestedUrls.push(urlStr)
+      if (urlStr.includes('favicon.im')) {
+        // 模拟 Favicon.im 返回合法 PNG 图标数据
+        const fakePng = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00])
+        return new Response(fakePng, {
+          status: 200,
+          headers: { 'content-type': 'image/png' },
+        })
+      }
+      return new Response('Not Found', { status: 404 })
+    }) as typeof globalThis.fetch
+
+    const { request, cookie } = await fixture()
+    const res = await request('/favicon/fetch', 'POST', { url: 'https://example.com' }, cookie)
+    expect(res.status).toBe(200)
+    const json = await res.json() as { iconUrl: string; candidateUrls?: string[] }
+    // 验证优先向 Favicon.im 发起探测
+    expect(requestedUrls.some(u => u.includes('favicon.im/example.com'))).toBe(true)
+    expect(json.iconUrl).toMatch(/^\/api\/v1\/icons\/[a-f0-9]+\.png$/)
+    expect(json.candidateUrls?.[0]).toBe('https://favicon.im/example.com?larger=true')
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
