@@ -18,51 +18,51 @@ laull-home 是一个高度自定义、私有化的个人浏览器方案，你可
 
 ## 快速上手
 
-### 拉取与部署
+你无需克隆源码仓库，只需准备一个 `compose.yml` 文件即可直接拉取并运行 GitHub Packages 的多架构容器镜像（支持 linux/amd64 与 linux/arm64）。
 
-克隆仓库并使用 Docker Compose 启动：
+### 1. 准备 compose.yml
+
+在一个目录中创建 `compose.yml` 文件：
+
+```yaml
+services:
+  laull-home:
+    image: ghcr.io/laull9/laull-home:latest
+    container_name: laull-home
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # 必填：真实外部访问地址（建议配置 HTTPS 来源，无末尾斜杠）
+      - LAULL_HOME_ORIGIN=https://home.example.com
+      - LAULL_HOME_SESSION_DAYS=90
+      - LAULL_HOME_DATABASE_PATH=/app/data/laull-home.db
+      - LAULL_HOME_DATA_DIR=/app/data
+    volumes:
+      # 持久化数据目录，保存 SQLite 数据库、壁纸与图标文件
+      - ./data:/app/data
+```
+
+### 2. 启动服务
+
+在包含 `compose.yml` 的目录下执行：
 
 ```sh
-git clone -b main https://github.com/laull9/laull-home.git
-cd laull-home
-cp .env.example .env
 docker compose up -d
 ```
 
-服务启动后访问 `http://localhost:3000`。若数据库为空，容器会自动初始化，你可以在日志中查看初始管理员账密（默认 `admin` / `admin`）：
+### 3. 查看初始管理员账号
+
+首次启动若数据库为空，容器会自动初始化管理员账密并在控制台输出（默认 `admin` / `admin`）：
 
 ```sh
 docker compose logs -f laull-home
 ```
 
-登录后建议在设置界面修改初始密码。
+登录后进入设置界面修改初始密码。
 
-### 示例 compose.yml
-
-你可以直接使用项目自带的 `compose.yml`，也可以参考下面的配置编写自己的编排文件：
-
-```yaml
-services:
-  laull-home:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: laull-home:latest
-    container_name: laull-home
-    restart: unless-stopped
-    ports:
-      - "${APP_HOST:-0.0.0.0}:${APP_PORT:-3000}:3000"
-    environment:
-      - NODE_ENV=production
-      - LAULL_HOME_ORIGIN=${LAULL_HOME_ORIGIN:-https://localhost:3000}
-      - LAULL_HOME_SESSION_DAYS=${LAULL_HOME_SESSION_DAYS:-90}
-      - LAULL_HOME_DATABASE_PATH=/app/data/laull-home.db
-      - LAULL_HOME_DATA_DIR=/app/data
-    volumes:
-      - ${DATA_PATH:-./data}:/app/data
-```
-
-反向代理配置与持久化权限说明见 [Docker 部署指南](docker/README.md)；源码调试与发布包运行见 [快速上手文档](docs/QUICKSTART.md)。
+反向代理配置与持久化权限说明见 [Docker 部署指南](docker/README.md)；源码调试与独立发布包运行见 [快速上手文档](docs/QUICKSTART.md)。
 
 ## 文档
 

@@ -1,5 +1,7 @@
 # Docker 生产部署与运行指南
 
+本项目在 GitHub Packages 持续构建并发布多架构容器镜像（同时原生支持 `linux/amd64` 与 `linux/arm64`），镜像地址为 `ghcr.io/laull9/laull-home:latest`。你可以直接拉取镜像运行，无需克隆源码。
+
 ## 1. 快速启动
 
 复制环境配置文件：
