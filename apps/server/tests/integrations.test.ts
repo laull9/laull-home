@@ -78,7 +78,8 @@ describe('AES-256-GCM 凭据加密、轮换与日志脱敏', () => {
 
     // 篡改密文导致校验失败抛错。
     const parts = encrypted.split(':')
-    const tampered = `${parts[0]}:${parts[1]}:${parts[2]}:ff${parts[3]!.slice(2)}`
+    const tamperedCipher = (parts[3]![0] === '0' ? '1' : '0') + parts[3]!.slice(1)
+    const tampered = `${parts[0]}:${parts[1]}:${parts[2]}:${tamperedCipher}`
     expect(() => decryptSecret(tampered, masterKey)).toThrow()
 
     // 错误主密钥解密抛错。
