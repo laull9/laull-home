@@ -51,7 +51,6 @@ function handleConfirm() {
     :show="show"
     title="删除搜索引擎确认"
     max-width="440px"
-    :close-on-click-outside="!deleting"
     :show-close-button="!deleting"
     @close="handleClose"
   >

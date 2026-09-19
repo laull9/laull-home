@@ -378,7 +378,6 @@ function handleSearch() {
     <SearchEngineModal
       :show="showEngineModal"
       :engine="editingEngine"
-      :close-on-click-outside="true"
       @close="showEngineModal = false"
       @created="handleEngineCreated"
       @updated="handleEngineUpdated"

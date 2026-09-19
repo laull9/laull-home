@@ -4,7 +4,7 @@ import SearchEngineDeleteModal from "./SearchEngineDeleteModal.vue"
 import SearchEngineModal from "./SearchEngineModal.vue"
 
 const { engines, fetchEngines, createEngine, updateEngine, deleteEngine } = useSearch()
-const { $api } = useNuxtApp()
+const { fetchFavicon } = useBookmarks()
 const iconCache = useState<Record<string, string>>('lh:engine-favicons', () => ({}))
 
 // 新增引擎表单绑定。
@@ -46,9 +46,9 @@ async function handleFetchNewIcon() {
   isFetchingNewIcon.value = true
   errorMessage.value = ""
   try {
-    const res = await $api.favicon.fetch.post({ url: origin, forceRefresh: true })
-    if (res.data?.iconUrl) {
-      iconCache.value[origin] = `${res.data.iconUrl}?t=${Date.now()}`
+    const iconUrl = await fetchFavicon(origin)
+    if (iconUrl) {
+      iconCache.value[origin] = `${iconUrl}?t=${Date.now()}`
       if (import.meta.client) {
         try {
           window.localStorage.setItem('lh_engine_favicons', JSON.stringify(iconCache.value))
@@ -76,9 +76,9 @@ async function handleRefreshEngineIcon(engine: SearchEngine) {
   errorMessage.value = ""
   successMessage.value = ""
   try {
-    const res = await $api.favicon.fetch.post({ url: origin, forceRefresh: true })
-    if (res.data?.iconUrl) {
-      iconCache.value[origin] = `${res.data.iconUrl}?t=${Date.now()}`
+    const iconUrl = await fetchFavicon(origin)
+    if (iconUrl) {
+      iconCache.value[origin] = `${iconUrl}?t=${Date.now()}`
       if (import.meta.client) {
         try {
           window.localStorage.setItem('lh_engine_favicons', JSON.stringify(iconCache.value))
@@ -305,7 +305,6 @@ async function handleConfirmDelete() {
     <SearchEngineModal
       :show="showEditModal"
       :engine="editingEngine"
-      :close-on-click-outside="true"
       @close="showEditModal = false"
       @updated="handleEngineUpdated"
     />

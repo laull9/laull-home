@@ -96,6 +96,8 @@ export type FetchFaviconInput = Static<typeof fetchFaviconSchema>
 export const fetchFaviconResponseSchema = Type.Object({
   // 本地缓存的图标相对访问路径。
   iconUrl: Type.String(),
+  // 页面声明的候选图标地址列表，由客户端直接下载。
+  candidateUrls: Type.Optional(Type.Array(Type.String())),
   // 探测到的远程 SVG 图标地址，由客户端拉取。
   svgUrl: Type.Optional(Type.String()),
 }, { additionalProperties: false })

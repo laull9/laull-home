@@ -179,3 +179,24 @@ test('桌面组件支持空标题保存与修改重命名，不再触发 400 校
   expect(readData.nodes[0]?.id).toBe('test-folder-widget')
   expect(readData.nodes[0]?.title).toBe('')
 })
+
+test('服务端仅嗅探候选链接并不直接下载图片，由上传落地存储', async () => {
+  const { request, cookie } = await fixture()
+
+  // 1. 探测受限目标地址，触发安全防护阻断
+  const blockedRes = await request('/favicon/fetch', 'POST', { url: 'http://127.0.0.1:8080/test' }, cookie)
+  expect(blockedRes.status).toBe(403)
+
+  // 2. 客户端上传探测下载得到的二进制文件
+  const fakeIco = Buffer.from([0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x10, 0x10])
+  const form = new FormData()
+  form.append('file', new Blob([fakeIco], { type: 'image/x-icon' }), 'favicon.ico')
+  const uploadRes = await request('/favicon/upload', 'POST', form, cookie)
+  expect(uploadRes.status).toBe(200)
+  const uploadJson = await uploadRes.json() as { iconUrl: string }
+  expect(uploadJson.iconUrl).toMatch(/^\/api\/v1\/icons\/[a-f0-9]+\.ico$/)
+
+  // 3. 验证静态资源可正确访问
+  const getRes = await request(uploadJson.iconUrl.replace('/api/v1', ''), 'GET')
+  expect(getRes.status).toBe(200)
+})

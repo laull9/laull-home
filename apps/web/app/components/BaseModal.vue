@@ -16,7 +16,7 @@ const props = withDefaults(
   }>(),
   {
     title: "",
-    closeOnClickOutside: true,
+    closeOnClickOutside: false,
     showCloseButton: true,
     maxWidth: "480px",
   },
