@@ -1,18 +1,18 @@
 <script setup lang="ts">
 import { useSettingsDraft } from '../composables/useSettingsDraft'
-import { type SessionItem } from '@laull-home/shared'
 import AlertModal from '../components/AlertModal.vue'
 import McpSettings from '../components/McpSettings.vue'
 import IntegrationSettings from '../components/IntegrationSettings.vue'
 import ThemePackageSettings from '../components/ThemePackageSettings.vue'
 import BackupSettings from '../components/BackupSettings.vue'
+import DeviceSettings from '../components/DeviceSettings.vue'
 
 // 启用身份鉴权守卫。
 definePageMeta({
   middleware: 'auth',
 })
 
-const { user, changeUsername, changePassword, fetchSessions, revokeSession, revokeOthers } = useAuth()
+const { user, changeUsername, changePassword } = useAuth()
 const { setupPrivacyPassword } = useSpaces()
 
 // 分页由地址参数保留，刷新和浏览器前进后退可恢复。
@@ -67,15 +67,6 @@ const privacyPassword = ref('')
 const privacyMsg = ref('')
 const privacyError = ref('')
 
-// 设备会话列表。
-const sessions = ref<SessionItem[]>([])
-const sessionsMsg = ref('')
-
-// 加载基础设置和设备列表。
-onMounted(async () => {
-  await loadSessions()
-})
-
 // 提交用户名修改。
 async function handleUsernameChange() {
   usernameMsg.value = ''
@@ -116,7 +107,6 @@ async function handlePasswordChange() {
     oldPassword.value = ''
     newPassword.value = ''
     confirmPassword.value = ''
-    await loadSessions()
   } catch (err: unknown) {
     passwordError.value = err instanceof Error ? err.message : '修改失败'
   }
@@ -139,37 +129,12 @@ async function handlePrivacySetup() {
   }
 }
 
-// 刷新设备列表。
-async function loadSessions() {
-  try {
-    sessions.value = await fetchSessions()
-  } catch {
-    sessionsMsg.value = '读取设备失败'
-  }
-}
-
-// 撤销指定设备。
-async function handleRevokeSession(id: string) {
-  try {
-    await revokeSession(id)
-    await loadSessions()
-  } catch {
-    sessionsMsg.value = '撤销设备失败'
-  }
-}
-
-// 撤销其他全部设备。
-async function handleRevokeOthers() {
-  try {
-    await revokeOthers()
-    await loadSessions()
-  } catch {
-    sessionsMsg.value = '撤销其他设备失败'
-  }
-}
-
 // 引用右侧内容滚动容器。
 const contentRef = ref<HTMLElement | null>(null)
+
+// 引用当前应用构建版本号。
+const runtimeConfig = useRuntimeConfig()
+const appVersion = computed(() => runtimeConfig.public.version || '1.0.3')
 
 // 切换分页时重置右侧内容滚动位置至顶部。
 watch(page, () => {
@@ -180,10 +145,13 @@ watch(page, () => {
 <template>
   <div class="settings-page">
     <header class="header">
-      <NuxtLink to="/" class="back-link">
-        返回主页
-      </NuxtLink>
-      <h1>设置</h1>
+      <div class="header-main">
+        <NuxtLink to="/" class="back-link">
+          返回主页
+        </NuxtLink>
+        <h1>设置</h1>
+      </div>
+      <span class="version-tag">v{{ appVersion }}</span>
     </header>
 
     <div class="settings-layout">
@@ -269,33 +237,7 @@ watch(page, () => {
 
       <SearchEngineSettings v-if="page === 'search'" />
 
-      <section v-if="page === 'devices'" class="card">
-        <div class="card-header">
-          <h2>活动设备</h2>
-          <button type="button" class="btn-secondary" @click="handleRevokeOthers">
-            撤销其他设备
-          </button>
-        </div>
-        <p v-if="sessionsMsg" class="info-text">
-          {{ sessionsMsg }}
-        </p>
-        <ul class="session-list">
-          <li v-for="item in sessions" :key="item.id" class="session-item">
-            <div class="session-info">
-              <span class="user-agent">{{ item.userAgent || '未知设备' }}</span>
-              <span v-if="item.isCurrent" class="tag-current">当前设备</span>
-            </div>
-            <button
-              v-if="!item.isCurrent"
-              type="button"
-              class="btn-revoke"
-              @click="handleRevokeSession(item.id)"
-            >
-              撤销
-            </button>
-          </li>
-        </ul>
-      </section>
+      <DeviceSettings v-if="page === 'devices'" />
 
       <IntegrationSettings v-if="page === 'integrations'" />
       <McpSettings v-if="page === 'mcp'" />
@@ -330,8 +272,20 @@ watch(page, () => {
   flex-direction: column;
   box-sizing: border-box;
 }
-.header { margin-bottom: 24px; display: flex; align-items: center; gap: 32px; flex-shrink: 0; }
+.header { margin-bottom: 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-shrink: 0; }
+.header-main { display: flex; align-items: center; gap: 32px; }
 .header h1 { font-size: 24px; margin: 0; }
+.version-tag {
+  font-size: 12px;
+  color: var(--lh-text-secondary);
+  background: var(--lh-surface-hover);
+  border: 1px solid var(--lh-border);
+  padding: 3px 8px;
+  border-radius: var(--lh-radius-sm);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  letter-spacing: 0.5px;
+  user-select: none;
+}
 .settings-layout { display: grid; grid-template-columns: 156px minmax(0, 1fr); gap: 40px; flex: 1; min-height: 0; }
 .settings-nav { display: flex; flex-direction: column; gap: 6px; align-self: start; overflow-y: auto; max-height: 100%; }
 .settings-nav a { color: var(--lh-text-secondary); padding: 12px 16px; text-decoration: none; border-radius: var(--lh-radius-sm); }
@@ -409,53 +363,6 @@ watch(page, () => {
   border-radius: var(--lh-radius-sm);
   cursor: pointer;
   font-size: 14px;
-}
-.btn-secondary {
-  padding: 6px 12px;
-  background: var(--lh-surface);
-  border: 1px solid var(--lh-border);
-  border-radius: var(--lh-radius-sm);
-  color: var(--lh-text);
-  cursor: pointer;
-  font-size: 13px;
-}
-.btn-revoke {
-  padding: 4px 10px;
-  background: var(--lh-danger-bg);
-  color: var(--lh-danger);
-  border: 1px solid var(--lh-danger-border);
-  border-radius: var(--lh-radius-sm);
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  transition: opacity 0.15s ease, background-color 0.15s ease;
-}
-.btn-revoke:hover {
-  background: color-mix(in srgb, var(--lh-danger) 22%, transparent);
-}
-.session-list {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.session-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 12px;
-  background: var(--lh-surface-hover);
-  border-radius: var(--lh-radius-sm);
-}
-.session-info { display: flex; align-items: center; gap: 8px; }
-.tag-current {
-  font-size: 12px;
-  background: var(--lh-accent);
-  color: var(--lh-accent-text);
-  padding: 2px 6px;
-  border-radius: 4px;
 }
 .info-text { color: var(--lh-success); font-size: 13px; margin: 6px 0; }
 .error-text { color: var(--lh-danger); font-size: 13px; margin: 6px 0; }

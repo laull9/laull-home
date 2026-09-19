@@ -1,3 +1,5 @@
+import pkg from '../../package.json'
+
 // Nuxt 只负责页面与同源代理，业务逻辑留在 Elysia。
 export default defineNuxtConfig({
   // 固定框架兼容行为。
@@ -25,6 +27,10 @@ export default defineNuxtConfig({
     // 自动跟随内部后端地址，也可通过 NUXT_API_INTERNAL_URL 显式覆盖。
     apiInternalUrl: process.env.NUXT_API_INTERNAL_URL
       || `http://${process.env.LAULL_HOME_HOST || '127.0.0.1'}:${process.env.LAULL_HOME_PORT || '3001'}`,
+    // 公开应用版本号供界面展示。
+    public: {
+      version: pkg.version,
+    },
   },
 })
 
