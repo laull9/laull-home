@@ -92,6 +92,17 @@ export const fetchFaviconSchema = Type.Object({
 // 图标抓取输入类型。
 export type FetchFaviconInput = Static<typeof fetchFaviconSchema>
 
+// 图标抓取响应结构。
+export const fetchFaviconResponseSchema = Type.Object({
+  // 本地缓存的图标相对访问路径。
+  iconUrl: Type.String(),
+  // 探测到的远程 SVG 图标地址，由客户端拉取。
+  svgUrl: Type.Optional(Type.String()),
+}, { additionalProperties: false })
+
+// 图标抓取响应类型。
+export type FetchFaviconResponse = Static<typeof fetchFaviconResponseSchema>
+
 // 从完整网址或模板中提取主机站点源地址。
 export function extractSiteOrigin(urlStr?: string): string {
   if (!urlStr) return ""

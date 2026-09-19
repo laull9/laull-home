@@ -100,11 +100,68 @@ export function useBookmarks() {
     await loadData(spaceId)
   }
 
-  // 探测站点 Favicon 图标并缓存。
+  // 上传自定义图标文件并返回持久化访问路径。
+  async function uploadFavicon(file: File | Blob): Promise<string> {
+    const payloadFile = file instanceof File ? file : new File([file], "icon.bin", { type: file.type || "application/octet-stream" })
+    const res = await $api.favicon.upload.post({ file: payloadFile })
+    if (res.error) throw new Error(res.error.value?.message ?? "上传图标失败")
+    return res.data?.iconUrl ?? ""
+  }
+
+  // 探测站点 Favicon 图标并缓存（由客户端拉取 SVG 或由服务端缓存位图）。
   async function fetchFavicon(targetUrl: string): Promise<string> {
+    // 1. 若为内网地址，先尝试客户端直接拉取通用 favicon
+    try {
+      const u = new URL(targetUrl)
+      const isPrivate = ["localhost", "127.0.0.1"].includes(u.hostname) || /^192\.168\.|^10\.|^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(u.hostname)
+      if (isPrivate) {
+        for (const path of ["/favicon.ico", "/favicon.svg", "/favicon.png"]) {
+          try {
+            const probeRes = await fetch(new URL(path, u.origin).toString())
+            if (probeRes.ok) {
+              const blob = await probeRes.blob()
+              if (blob.size > 0) {
+                const uploaded = await uploadFavicon(blob)
+                if (uploaded) return uploaded
+              }
+            }
+          } catch {
+            // 忽略客户端直接拉取异常
+          }
+        }
+      }
+    } catch {
+      // 忽略 URL 解析异常
+    }
+
+    // 2. 调用服务端探测
     const res = await $api.favicon.fetch.post({ url: targetUrl })
     if (res.error) throw new Error(res.error.value?.message ?? "获取图标失败")
-    return res.data?.iconUrl ?? ""
+
+    // 3. 若服务端直接返回了已缓存的本地位图路径，直接使用
+    if (res.data?.iconUrl) {
+      return res.data.iconUrl
+    }
+
+    // 4. 若服务端发现了 SVG 图标地址，由客户端拉取后上传至服务端
+    if (res.data?.svgUrl) {
+      try {
+        const svgRes = await fetch(res.data.svgUrl)
+        if (svgRes.ok) {
+          const blob = await svgRes.blob()
+          if (blob.size > 0) {
+            const uploaded = await uploadFavicon(blob)
+            if (uploaded) return uploaded
+          }
+        }
+      } catch {
+        // 跨域或网络受限时直接返回远程 SVG 地址
+        return res.data.svgUrl
+      }
+      return res.data.svgUrl
+    }
+
+    return ""
   }
 
   return {
@@ -122,5 +179,6 @@ export function useBookmarks() {
     deleteBookmark,
     reorderBookmarks,
     fetchFavicon,
+    uploadFavicon,
   }
 }

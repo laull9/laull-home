@@ -80,6 +80,9 @@ export function useDesktop() {
   function update(node: WidgetNode) {
     if (!data.value) return
     const updated = { ...node }
+    if (typeof updated.title === 'string') {
+      updated.title = updated.title.trim()
+    }
     const index = data.value.nodes.findIndex(item => item.id === node.id)
     if (index !== -1) {
       data.value.nodes[index] = { ...data.value.nodes[index]!, ...updated }
@@ -110,7 +113,9 @@ export function useDesktop() {
       node.style = { opacity: 100, blur: 0, radius: 16, padding: 8, border: 0, color: '', background: '', frameless: true }
     }
     if (options?.referenceId) node.referenceId = options.referenceId
-    if (options?.title) node.title = options.title
+    if (options?.title !== undefined && options.title.trim()) {
+      node.title = options.title.trim()
+    }
     if (node.type === 'countdown' && !node.content) {
       node.content = new Date(Date.now() + 30 * 86400000).toISOString().split('T')[0] ?? ''
     }
