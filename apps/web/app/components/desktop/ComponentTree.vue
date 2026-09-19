@@ -94,7 +94,7 @@ const isSearching = computed(() => searchQuery.value.trim().length > 0)
 function onDragStart(event: DragEvent, item: TreeItem) {
   if (!event.dataTransfer) return
   activeDragTreeItem.value = item
-  const framelessFlag = item.frameless ? ':frameless' : ''
+  const framelessFlag = item.frameless ? ':frameless' : ':card'
   const refId = item.referenceId ? `:${item.referenceId}` : ''
   const payload = `new:${item.type}:${item.variant || ''}:${item.w}:${item.h}${framelessFlag}${refId}`
   event.dataTransfer.setData('text/plain', payload)

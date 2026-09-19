@@ -199,7 +199,8 @@ export function useFolderModalDrag(options: UseFolderModalDragOptions) {
     if (text.startsWith('folder-item:')) {
       bookmarkId = text.split(':')[3] || ''
     } else if (text.startsWith('new:bookmark:')) {
-      bookmarkId = text.slice(4).split(':')[5] || ''
+      const parts = text.slice(4).split(':')
+      bookmarkId = (parts[4] && parts[4] !== 'frameless' && parts[4] !== 'card') ? parts[4] : (parts[5] || '')
     }
     if (bookmarkId) {
       await updateBookmark(bookmarkId, activeSpaceId.value, { groupId: targetGroupId })

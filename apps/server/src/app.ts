@@ -338,9 +338,16 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       return { success: true }
     }, { params: t.Object({ id: t.String() }) })
     .post('/favicon/fetch', async ({ body }) => {
-      const iconUrl = await faviconService.fetchAndCache(body.url, body.forceRefresh ?? false)
-      return { iconUrl }
+      const result = await faviconService.fetchAndCache(body.url, body.forceRefresh ?? false)
+      return result
     }, { body: fetchFaviconSchema })
+    .post('/favicon/upload', async ({ body }) => {
+      return await faviconService.saveUpload(body.file)
+    }, {
+      body: t.Object({
+        file: t.File(),
+      }),
+    })
     .get('/wallpapers/pools', ({ user }) => {
       return { pools: wallpaperService.listPools(user.id) }
     })

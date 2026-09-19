@@ -77,6 +77,67 @@ export async function assertSafeOutboundUrl(targetUrl: string): Promise<{ url: U
   return { url, resolvedIp }
 }
 
+// 识别二进制缓冲区的图标类型并防范恶意脚本。
+export function detectIconFormat(buffer: Buffer): { ext: string; mime: string } {
+  if (buffer.length < 4) {
+    throw new FaviconError(400, "无效的图标文件内容")
+  }
+
+  // 1. JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return { ext: "jpg", mime: "image/jpeg" }
+  }
+
+  // 2. PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 &&
+    buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a
+  ) {
+    return { ext: "png", mime: "image/png" }
+  }
+
+  // 3. GIF: GIF87a 或 GIF89a
+  if (
+    buffer.length >= 6 &&
+    buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38 &&
+    (buffer[4] === 0x37 || buffer[4] === 0x39) && buffer[5] === 0x61
+  ) {
+    return { ext: "gif", mime: "image/gif" }
+  }
+
+  // 4. WebP: RIFF....WEBP
+  if (
+    buffer.length >= 12 &&
+    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
+  ) {
+    return { ext: "webp", mime: "image/webp" }
+  }
+
+  // 5. ICO: 00 00 01 00
+  if (buffer[0] === 0x00 && buffer[1] === 0x00 && buffer[2] === 0x01 && buffer[3] === 0x00) {
+    return { ext: "ico", mime: "image/x-icon" }
+  }
+
+  // 6. SVG: 检查 XML/<svg 标签与防范 XSS
+  const textHead = buffer.subarray(0, Math.min(buffer.length, 4096)).toString("utf-8").trim().toLowerCase()
+  if (textHead.includes("<svg") || (textHead.startsWith("<?xml") && textHead.includes("<svg"))) {
+    const fullText = buffer.toString("utf-8").toLowerCase()
+    if (
+      fullText.includes("<script") ||
+      fullText.includes("javascript:") ||
+      fullText.includes("<foreignobject") ||
+      /on[a-z]+\s*=/i.test(fullText)
+    ) {
+      throw new FaviconError(400, "SVG 图标包含不安全的脚本或事件代码，已被系统拦截")
+    }
+    return { ext: "svg", mime: "image/svg+xml" }
+  }
+
+  throw new FaviconError(400, "仅支持合法的 ICO、PNG、SVG、WebP、JPG 与 GIF 图标")
+}
+
 // 创建受控 Favicon 探测与缓存服务。
 export function createFaviconService(dataDir: string) {
   const iconsDir = resolve(dataDir, "icons")
@@ -187,8 +248,21 @@ export function createFaviconService(dataDir: string) {
       return { buffer: readFileSync(filePath), contentType }
     },
 
-    // 探测并缓存站点图标，返回本地相对访问路径。
-    async fetchAndCache(siteUrl: string, forceRefresh = false): Promise<string> {
+    // 保存客户端上传的图标文件。
+    async saveUpload(file: Blob): Promise<{ iconUrl: string }> {
+      if (!file || file.size === 0) throw new FaviconError(400, "请选择要上传的图标文件")
+      if (file.size > 512 * 1024) throw new FaviconError(400, "图标文件体积不能超过 512KB")
+
+      const buffer = Buffer.from(await file.arrayBuffer())
+      const { ext } = detectIconFormat(buffer)
+      const hash = createHash("sha256").update(buffer).digest("hex").slice(0, 16)
+      const filename = hash + "." + ext
+      writeFileSync(join(iconsDir, filename), buffer)
+      return { iconUrl: "/api/v1/icons/" + filename }
+    },
+
+    // 探测站点图标，返回本地相对访问路径或远程 SVG 候选地址。
+    async fetchAndCache(siteUrl: string, forceRefresh = false): Promise<{ iconUrl: string; svgUrl?: string }> {
       const { url: safeUrl } = await assertSafeOutboundUrl(siteUrl)
       const domain = safeUrl.hostname
       const urlHash = createHash("sha256").update(domain).digest("hex").slice(0, 16)
@@ -198,12 +272,12 @@ export function createFaviconService(dataDir: string) {
         for (const ext of [".png", ".ico", ".svg", ".webp", ".jpg"]) {
           const candidateName = urlHash + ext
           if (existsSync(join(iconsDir, candidateName))) {
-            return "/api/v1/icons/" + candidateName
+            return { iconUrl: "/api/v1/icons/" + candidateName }
           }
         }
       }
 
-      // 针对必应等知名搜索引擎预置极速官方图标探测端点
+      // 针对知名站点预置官方位图探测端点，不抓取 SVG
       const priorityUrls: string[] = []
       if (domain.includes("bing.com")) {
         priorityUrls.push(
@@ -216,18 +290,18 @@ export function createFaviconService(dataDir: string) {
       for (const pUrl of priorityUrls) {
         try {
           const iconData = await fetchWithSafeLimits(pUrl)
-          if (iconData.buffer.byteLength > 0) {
-            let ext = ".png"
-            if (iconData.contentType.includes("icon") || pUrl.endsWith(".ico")) ext = ".ico"
-            else if (iconData.contentType.includes("svg") || pUrl.endsWith(".svg")) ext = ".svg"
+          if (iconData.buffer.byteLength > 0 && !iconData.contentType.includes("svg")) {
+            const ext = (iconData.contentType.includes("icon") || pUrl.endsWith(".ico")) ? ".ico" : ".png"
             const filename = urlHash + ext
             writeFileSync(join(iconsDir, filename), iconData.buffer)
-            return "/api/v1/icons/" + filename
+            return { iconUrl: "/api/v1/icons/" + filename }
           }
         } catch {
           // 忽略预设端点探测失败
         }
       }
+
+      let detectedSvgUrl = ""
 
       // 1. 尝试抓取页面 HTML 寻找 declared icon
       try {
@@ -237,16 +311,25 @@ export function createFaviconService(dataDir: string) {
           const iconUrls = extractIconsFromHtml(html, safeUrl.toString())
 
           for (const iconUrl of iconUrls) {
+            // 若地址带有 svg 特征，服务端不直接下载，交给客户端拉取
+            if (iconUrl.toLowerCase().endsWith(".svg") || iconUrl.toLowerCase().includes(".svg?")) {
+              if (!detectedSvgUrl) detectedSvgUrl = iconUrl
+              continue
+            }
             try {
               const iconData = await fetchWithSafeLimits(iconUrl)
               if (iconData.buffer.byteLength > 0) {
+                // 若响应类型为 svg，服务端不保存，记录为 svgUrl 由客户端处理
+                if (iconData.contentType.includes("svg")) {
+                  if (!detectedSvgUrl) detectedSvgUrl = iconUrl
+                  continue
+                }
                 let ext = ".png"
-                if (iconData.contentType.includes("svg")) ext = ".svg"
-                else if (iconData.contentType.includes("icon")) ext = ".ico"
+                if (iconData.contentType.includes("icon")) ext = ".ico"
                 else if (iconData.contentType.includes("webp")) ext = ".webp"
                 const filename = urlHash + ext
                 writeFileSync(join(iconsDir, filename), iconData.buffer)
-                return "/api/v1/icons/" + filename
+                return { iconUrl: "/api/v1/icons/" + filename }
               }
             } catch {
               // 忽略当前候选图标抓取失败
@@ -261,25 +344,30 @@ export function createFaviconService(dataDir: string) {
       try {
         const faviconUrl = new URL("/favicon.ico", safeUrl.origin).toString()
         const icoData = await fetchWithSafeLimits(faviconUrl)
-        if (icoData.buffer.byteLength > 0) {
+        if (icoData.buffer.byteLength > 0 && !icoData.contentType.includes("svg")) {
           const filename = urlHash + ".ico"
           writeFileSync(join(iconsDir, filename), icoData.buffer)
-          return "/api/v1/icons/" + filename
+          return { iconUrl: "/api/v1/icons/" + filename }
         }
       } catch {
         // 忽略 /favicon.ico 探测失败
       }
 
-      // 3. 若远程拉取失败但本地存在旧缓存，返回旧缓存兜底
+      // 3. 若发现 SVG 图标地址，返回给客户端拉取
+      if (detectedSvgUrl) {
+        return { iconUrl: "", svgUrl: detectedSvgUrl }
+      }
+
+      // 4. 若远程拉取失败但本地存在旧缓存，返回旧缓存兜底
       for (const ext of [".png", ".ico", ".svg", ".webp", ".jpg"]) {
         const candidateName = urlHash + ext
         if (existsSync(join(iconsDir, candidateName))) {
-          return "/api/v1/icons/" + candidateName
+          return { iconUrl: "/api/v1/icons/" + candidateName }
         }
       }
 
-      // 4. 所有抓取失败，返回空由客户端回退
-      return ""
+      // 5. 所有抓取失败，返回空由客户端回退
+      return { iconUrl: "" }
     },
   }
 }

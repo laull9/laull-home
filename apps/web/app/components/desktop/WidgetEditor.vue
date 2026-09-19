@@ -50,6 +50,8 @@ function autoSave() {
   if (autoSaveTimer) clearTimeout(autoSaveTimer)
   autoSaveTimer = setTimeout(() => {
     if (!draft.value || !placement.value) return
+    // 标题编辑中若为空暂缓落盘，避免打断输入并触发无效保存
+    if (!draft.value.title.trim()) return
     try {
       if (draft.value.css) scopedCss(draft.value.css, '#widget-' + draft.value.id)
       if (draft.value.timezone) new Intl.DateTimeFormat('zh-CN', { timeZone: draft.value.timezone })
@@ -66,6 +68,16 @@ function autoSave() {
 watch(draft, () => {
   autoSave()
 }, { deep: true })
+
+// 完成配置并提交保存。
+function handleDone() {
+  if (autoSaveTimer) clearTimeout(autoSaveTimer)
+  if (!draft.value) { emit('close'); return }
+  const trimmed = draft.value.title.trim()
+  draft.value.title = trimmed || initialSnapshot?.title || '新组件'
+  emit('save', draft.value)
+  emit('close')
+}
 
 // 放弃当前修改，回滚至打开配置前的初始快照并关闭。
 function cancelChanges() {
@@ -101,8 +113,8 @@ function exportCode() {
 </script>
 
 <template>
-  <BaseModal :show="!!node" title="配置组件外观" max-width="600px" @close="emit('close')">
-    <form v-if="draft && placement" class="widget-editor" @submit.prevent="emit('close')">
+  <BaseModal :show="!!node" title="配置组件外观" max-width="600px" @close="handleDone">
+    <form v-if="draft && placement" class="widget-editor" @submit.prevent="handleDone">
       <label>名称<input v-model="draft.title" maxlength="80" required></label>
 
       <!-- 时钟显示样式选择 -->

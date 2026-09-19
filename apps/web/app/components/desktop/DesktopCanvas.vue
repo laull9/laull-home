@@ -11,7 +11,8 @@ import AlertModal from '../AlertModal.vue'
 import WidgetContent from './WidgetContent.vue'
 import WidgetEditor from './WidgetEditor.vue'
 import ComponentTree from './ComponentTree.vue'
-import { activeDragTreeItem } from './treeCatalog'
+import { useCanvasLibraryDrop } from '../../composables/useCanvasLibraryDrop'
+import { useCanvasShortcuts } from '../../composables/useCanvasShortcuts'
 
 // 外部双向同步断点与叠放模式。
 const selectedBreakpoint = defineModel<'auto' | Breakpoint>('selectedBreakpoint', { default: 'auto' })
@@ -27,7 +28,7 @@ const emit = defineEmits<{
 }>()
 // 空间画布和编辑状态。
 const { data, error, loading, saving, dirty, load, save, merge, update, add, remove, template } = useDesktop()
-const { updateBookmark, createGroup } = useBookmarks()
+const { updateBookmark, createGroup, updateGroup } = useBookmarks()
 const breakpoint = ref<Breakpoint>('desktop')
 const { handleDropToCanvas, handleDropToFolder } = useFolderItemDrag({
   spaceId: computed(() => props.spaceId),
@@ -57,7 +58,7 @@ watch(data, current => {
 watch(saving, isSaving => emit('saving', isSaving), { immediate: true })
 watch(showComponentTree, isOpen => emit('treeOpen', isOpen), { immediate: true })
 const selected = ref<WidgetNode | null>(null)
-const importCode = ref(''), filter = ref(''), alt = ref(false), dragged = ref('')
+const importCode = ref(''), dragged = ref('')
 const activeStacks = ref<Record<string, number>>({})
 let observer: ResizeObserver | undefined, touchStart = 0
 // 快捷菜单只作用于已载入且已授权的画布。
@@ -123,6 +124,13 @@ const visibleNodes = computed(() => {
     groups.set(key, [...(groups.get(key) ?? []), node])
   }
   return Array.from(groups, ([key, nodes]) => ({ node: nodes[(activeStacks.value[key] ?? 0) % nodes.length]!, count: nodes.length, key }))
+})
+
+// 主桌面键盘快捷检索、数字快捷跳转与角标显隐。
+const { filter, alt, shortcuts } = useCanvasShortcuts({
+  canvas,
+  visibleNodes,
+  positions,
 })
 // 提供组件局部变量和网格位置。
 function style(node: WidgetNode) {
@@ -271,117 +279,23 @@ function handleAddWidget(type: WidgetNode['type'], variant?: string, size?: { w:
   }
   add(type, undefined, variant, size, { frameless, referenceId: targetRefId, title: targetTitle, breakpoint: breakpoint.value })
 }
-// 组件树拖拽网格放置预览。
-// 组件树与外部条目拖拽网格放置预览与文件夹吸收。
-const libraryPreview = ref<Placement | null>(null)
-const nativeHoverFolderId = ref<string | null>(null)
-
-// 原生拖拽进入网格计算落点或悬停文件夹。
-function libraryOver(event: DragEvent) {
-  event.preventDefault()
-  if (!canvas.value) return
-
-  // 检查是否悬停在某个文件夹组件上方。
-  const targetEl = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-widget-id]')
-  const targetId = targetEl?.dataset.widgetId
-  const targetNode = targetId ? data.value?.nodes.find(item => item.id === targetId) : null
-
-  if (targetNode?.type === 'folder') {
-    nativeHoverFolderId.value = targetNode.id
-    libraryPreview.value = null
-    return
-  }
-
-  nativeHoverFolderId.value = null
-  const item = activeDragTreeItem.value
-  const w = item?.w ?? 1, h = item?.h ?? 1
-  const grid = canvas.value
-  const bounds = grid.getBoundingClientRect()
-  const columns = BREAKPOINTS[breakpoint.value]
-  const gap = parseFloat(getComputedStyle(grid).columnGap) || 0
-  const rowGap = parseFloat(getComputedStyle(grid).rowGap) || 0
-  const cell = (bounds.width - gap * (columns - 1)) / columns
-  const x = Math.max(0, Math.min(columns - w, Math.floor((event.clientX - bounds.left) / (cell + gap))))
-  const y = Math.max(0, Math.min(199, Math.floor((event.clientY - bounds.top) / (96 + rowGap))))
-  if (!libraryPreview.value || libraryPreview.value.x !== x || libraryPreview.value.y !== y || libraryPreview.value.w !== w || libraryPreview.value.h !== h) {
-    libraryPreview.value = { x, y, w, h, pinned: true }
-  }
-}
-
-// 离开网格清除预览框与高亮目标。
-function libraryLeave() {
-  libraryPreview.value = null
-  nativeHoverFolderId.value = null
-}
-
-// 组件树与外部条目拖放后定位到目标网格或放入文件夹。
-async function drop(event: DragEvent) {
-  event.preventDefault()
-  const hoveredFolderId = nativeHoverFolderId.value
-  nativeHoverFolderId.value = null
-  let targetP = libraryPreview.value
-  libraryPreview.value = null
-  const text = event.dataTransfer?.getData('text/plain') || dragged.value
-  if (!text || saving.value || !data.value) return
-
-  // 优先判定是否拖入文件夹小部件（拖到文件夹上再次放入）。
-  const targetEl = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-widget-id]')
-  const targetId = hoveredFolderId || targetEl?.dataset.widgetId
-  const targetFolderNode = targetId ? data.value.nodes.find(item => item.id === targetId && item.type === 'folder') : null
-
-  if (targetFolderNode) {
-    let groupId = targetFolderNode.referenceId
-    if (!groupId) {
-      const created = await createGroup({ spaceId: props.spaceId, name: targetFolderNode.title || '新文件夹' })
-      if (created) {
-        groupId = created.id
-        update({ ...targetFolderNode, referenceId: groupId })
-      }
-    }
-    if (groupId) {
-      await handleDropToFolder(groupId, text)
-      return
-    }
-  }
-
-  // 兜底计算网格落点，防止松手瞬间由于 dragleave 清空 preview 而导致 drop 丢失。
-  if (!targetP && canvas.value) {
-    const grid = canvas.value
-    const bounds = grid.getBoundingClientRect()
-    if (event.clientX >= bounds.left && event.clientX <= bounds.right && event.clientY >= bounds.top && event.clientY <= bounds.bottom) {
-      const columns = BREAKPOINTS[breakpoint.value]
-      const gap = parseFloat(getComputedStyle(grid).columnGap) || 0
-      const rowGap = parseFloat(getComputedStyle(grid).rowGap) || 0
-      const cell = (bounds.width - gap * (columns - 1)) / columns
-      const x = Math.max(0, Math.min(columns - 1, Math.floor((event.clientX - bounds.left) / (cell + gap))))
-      const y = Math.max(0, Math.min(199, Math.floor((event.clientY - bounds.top) / (96 + rowGap))))
-      targetP = { x, y, w: 1, h: 1, pinned: true }
-    }
-  }
-
-  if (text.startsWith('folder-item:')) {
-    if (targetP) await handleDropToCanvas(text, targetP)
-    return
-  }
-  if (!text.startsWith('new:')) return
-  const parts = text.slice(4).split(':')
-  const type = parts[0] as WidgetNode['type']
-  const variant = parts[1] || undefined
-  const w = parts[2] ? Number(parts[2]) : undefined
-  const h = parts[3] ? Number(parts[3]) : undefined
-  const frameless = parts[4] === 'frameless'
-  const refId = parts[5] || undefined
-  const size = (w && h) ? { w, h } : undefined
-  handleAddWidget(type, variant, size, frameless, refId)
-  const node = data.value.nodes.at(-1)
-  if (!node) return
-  if (targetP) {
-    node.layouts[breakpoint.value] = { ...targetP }
-    node.layouts.desktop = { ...targetP }
-  }
-  dirty.value = true
-  if (!props.editing) await save()
-}
+// 组件树与外部条目网格放置与文件夹吸收拖拽逻辑。
+const { libraryPreview, nativeHoverFolderId, libraryOver, libraryLeave, drop } = useCanvasLibraryDrop({
+  canvas,
+  breakpoint,
+  data,
+  dirty,
+  saving,
+  editing: () => props.editing,
+  spaceId: () => props.spaceId,
+  dragged,
+  createGroup,
+  update,
+  save,
+  handleAddWidget,
+  handleDropToFolder,
+  handleDropToCanvas,
+})
 // 键盘与移动端可在配置浮层修改位置。
 function pin(node: WidgetNode) {
   const p = positions.value.get(node.id)!
@@ -421,30 +335,13 @@ function handleConfirmReload() {
   showReloadConfirm.value = false
   void load(props.spaceId)
 }
-// 编辑输入和弹窗存在时不抢占键盘。
-function keyboard(event: KeyboardEvent) {
-  alt.value = event.altKey
-  if ((event.target as HTMLElement)?.closest('input,textarea,select,[contenteditable]') || document.querySelector('[role="dialog"][open]')) return
-  if (event.key === '/') { event.preventDefault(); canvas.value?.querySelector<HTMLInputElement>('input')?.focus() }
-  else if (event.altKey && /^[1-9]$/.test(event.key)) {
-    const node = shortcuts.value[Number(event.key) - 1]
-    if (node) document.getElementById('widget-' + node.id)?.querySelector<HTMLAnchorElement>('.icon-link')?.click()
-  } else if (!event.ctrlKey && !event.metaKey && !event.altKey && event.key.length === 1) filter.value += event.key
-  else if (event.key === 'Escape') filter.value = ''
-  else if (event.key === 'Backspace' && filter.value) { event.preventDefault(); filter.value = filter.value.slice(0, -1) }
-}
-// 固定应用的数字角标与键盘操作使用相同列表。
-const shortcuts = computed(() => visibleNodes.value.map(entry => entry.node).filter(node => node.type === 'bookmark' && positions.value.get(node.id)?.pinned).slice(0, 9))
-// 松开组合键或离开窗口时清除角标。
-function releaseAlt() { alt.value = false }
 onBeforeRouteLeave(() => !dirty.value || confirm('放弃未保存的布局修改并离开？'))
 // 页面关闭时保护尚未保存的草稿。
 function beforeUnload(event: BeforeUnloadEvent) { if (dirty.value) event.preventDefault() }
 onMounted(() => {
   resize(); observer = new ResizeObserver(resize)
   if (canvas.value) observer.observe(canvas.value)
-  document.addEventListener('keydown', keyboard); document.addEventListener('keyup', releaseAlt)
-  window.addEventListener('blur', releaseAlt); window.addEventListener('beforeunload', beforeUnload)
+  window.addEventListener('beforeunload', beforeUnload)
 })
 
 // 自动防抖保存定时器与排队持久化。
@@ -462,7 +359,13 @@ watch(dirty, isDirty => {
 // 统一响应组件就地内容变更并在常态下排队自动保存。
 function handleWidgetUpdate(node: WidgetNode) { update(node) }
 // 响应配置弹窗保存。
-function handleEditorSave(node: WidgetNode) { update(node) }
+function handleEditorSave(node: WidgetNode) {
+  const safeNode = { ...node, title: node.title.trim() || '新组件' }
+  update(safeNode)
+  if (safeNode.type === 'folder' && safeNode.referenceId) {
+    void updateGroup(safeNode.referenceId, props.spaceId, { name: safeNode.title })
+  }
+}
 // 响应配置弹窗复制。
 function handleEditorCopy(node: WidgetNode) { add(node.type, node) }
 // 响应配置弹窗模板保存。
@@ -473,8 +376,7 @@ function handleEditorRemove(id: string) { remove(id) }
 onUnmounted(() => {
   if (autoSaveCanvasTimer) { clearTimeout(autoSaveCanvasTimer); if (dirty.value) void save() }
   observer?.disconnect()
-  document.removeEventListener('keydown', keyboard); document.removeEventListener('keyup', releaseAlt)
-  window.removeEventListener('blur', releaseAlt); window.removeEventListener('beforeunload', beforeUnload)
+  window.removeEventListener('beforeunload', beforeUnload)
 })
 </script>
 

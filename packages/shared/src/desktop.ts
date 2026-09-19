@@ -29,7 +29,7 @@ export const widgetSchema = Type.Object({
     Type.Literal('countdown'), Type.Literal('todo'), Type.Literal('service'),
     Type.Literal('iframe'),
   ]),
-  title: Type.String({ minLength: 1, maxLength: 80 }),
+  title: Type.String({ maxLength: 80 }),
   content: Type.String({ maxLength: 8000 }), referenceId: Type.String({ maxLength: 64 }),
   timezone: Type.String({ maxLength: 64 }), hour12: Type.Boolean(),
   stackId: Type.String({ maxLength: 64 }), css: Type.String({ maxLength: 4000 }),

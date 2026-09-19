@@ -17,7 +17,7 @@ const emit = defineEmits<{
 }>()
 
 // 书签领域数据操作接口。
-const { createBookmark, updateBookmark, fetchFavicon } = useBookmarks()
+const { createBookmark, updateBookmark, fetchFavicon, uploadFavicon } = useBookmarks()
 
 // 表单字段绑定。
 const formTitle = ref("")
@@ -26,8 +26,27 @@ const formIconUrl = ref("")
 const formGroupId = ref("")
 const formVariant = ref("")
 const fetchingIcon = ref(false)
+const uploadingIcon = ref(false)
 const errorMessage = ref("")
 const submitting = ref(false)
+
+// 处理本地图标文件选择并上传。
+async function handleFileUpload(event: Event) {
+  const target = event.target as HTMLInputElement
+  const file = target.files?.[0]
+  if (!file) return
+  uploadingIcon.value = true
+  errorMessage.value = ""
+  try {
+    const url = await uploadFavicon(file)
+    if (url) formIconUrl.value = url
+  } catch (err: unknown) {
+    errorMessage.value = err instanceof Error ? err.message : "上传图标失败"
+  } finally {
+    uploadingIcon.value = false
+    target.value = ""
+  }
+}
 
 // 监听编辑对象变化，同步表单状态。
 watch(() => props.show, (showing) => {
@@ -174,7 +193,7 @@ async function handleSubmit() {
       </div>
 
       <div class="field">
-        <label>图标链接（可选）</label>
+        <label>图标（可选）</label>
         <div class="icon-preview-row">
           <img
             v-if="formIconUrl"
@@ -183,7 +202,17 @@ async function handleSubmit() {
             class="icon-preview"
             @error="formIconUrl = ''"
           >
-          <input v-model="formIconUrl" type="text" placeholder="输入图标地址或使用上方探测">
+          <input v-model="formIconUrl" type="text" placeholder="输入图标地址、探测或上传">
+          <label class="btn-upload-icon" title="上传本地图片或 SVG">
+            <span>{{ uploadingIcon ? "上传中..." : "上传" }}</span>
+            <input
+              type="file"
+              accept=".ico,.png,.svg,.webp,.jpg,.jpeg,.gif,image/*"
+              class="hidden-file-input"
+              :disabled="uploadingIcon"
+              @change="handleFileUpload"
+            >
+          </label>
         </div>
       </div>
 
@@ -259,6 +288,33 @@ async function handleSubmit() {
   border-radius: 6px;
   object-fit: cover;
   border: 1px solid var(--lh-border);
+}
+.btn-upload-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border: 1px solid var(--lh-border);
+  border-radius: var(--lh-radius-sm);
+  background: var(--lh-surface);
+  color: var(--lh-text);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+  position: relative;
+  transition: all 0.15s ease;
+}
+.btn-upload-icon:hover {
+  background: var(--lh-surface-hover);
+  border-color: var(--lh-border-hover);
+}
+.hidden-file-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
 }
 .checkbox-field {
   margin-bottom: 16px;

@@ -86,7 +86,7 @@ export function useFolderItemDrag(options: {
       bookmarkId = parts[3] || ''
     } else if (dragText.startsWith('new:bookmark:')) {
       const parts = dragText.slice(4).split(':')
-      bookmarkId = parts[5] || ''
+      bookmarkId = (parts[4] && parts[4] !== 'frameless' && parts[4] !== 'card') ? parts[4] : (parts[5] || '')
     }
 
     if (!bookmarkId) return false
