@@ -143,15 +143,15 @@ export function createFaviconService(dataDir: string) {
   const iconsDir = resolve(dataDir, "icons")
   if (!existsSync(iconsDir)) mkdirSync(iconsDir, { recursive: true })
 
-  // 安全请求远程资源并限制体积与重定向。
-  async function fetchWithSafeLimits(targetUrl: string, maxRedirects = 3): Promise<{ buffer: Buffer, contentType: string }> {
+  // 安全请求远程资源并限制体积、重定向与超时时间。
+  async function fetchWithSafeLimits(targetUrl: string, maxRedirects = 3, timeoutMs = 5000): Promise<{ buffer: Buffer, contentType: string }> {
     let currentUrl = targetUrl
     let redirects = 0
 
     while (redirects <= maxRedirects) {
       const { url, resolvedIp } = await assertSafeOutboundUrl(currentUrl)
       const controller = new AbortController()
-      const timer = setTimeout(() => controller.abort(), 5000)
+      const timer = setTimeout(() => controller.abort(), timeoutMs)
 
       try {
         // 对 HTTP 协议使用物理 IP 并注入 Host 头防 DNS 重绑定；HTTPS 保持域名以通过 TLS SNI 证书校验。
@@ -261,7 +261,7 @@ export function createFaviconService(dataDir: string) {
       return { iconUrl: "/api/v1/icons/" + filename }
     },
 
-    // 探测站点图标候选地址或返回已有本地缓存，服务端不直接下载任何外部图片文件。
+    // 探测站点图标候选地址或返回已有本地缓存，优先使用 Favicon.im 获取与缓存。
     async fetchAndCache(siteUrl: string, forceRefresh = false): Promise<{ iconUrl: string; candidateUrls?: string[]; svgUrl?: string }> {
       const { url: safeUrl } = await assertSafeOutboundUrl(siteUrl)
       const domain = safeUrl.hostname
@@ -278,10 +278,36 @@ export function createFaviconService(dataDir: string) {
       }
 
       const candidateUrls: string[] = []
+      const isPublic = !isPrivateIp(domain)
 
-      // 2. 尝试抓取页面 HTML 提取 declared icon（仅解析 HTML 文本，不下载图片）
+      // 2. 公网域名优先追加 Favicon.im 高清候选地址
+      if (isPublic) {
+        candidateUrls.push(`https://favicon.im/${domain}?larger=true`)
+        candidateUrls.push(`https://favicon.im/${domain}`)
+        if (domain.startsWith("www.")) {
+          candidateUrls.push(`https://favicon.im/${domain.slice(4)}?larger=true`)
+        }
+      }
+
+      // 3. 服务端若网络通畅，优先尝试通过 Favicon.im 拉取并缓存
+      if (isPublic) {
+        try {
+          const faviconImUrl = `https://favicon.im/${domain}?larger=true`
+          const iconResult = await fetchWithSafeLimits(faviconImUrl, 2, 3000)
+          if (iconResult.buffer.byteLength > 0) {
+            const { ext } = detectIconFormat(iconResult.buffer)
+            const filename = urlHash + "." + ext
+            writeFileSync(join(iconsDir, filename), iconResult.buffer)
+            return { iconUrl: "/api/v1/icons/" + filename, candidateUrls }
+          }
+        } catch {
+          // 忽略服务端网络直连 Favicon.im 失败，继续后续探测
+        }
+      }
+
+      // 4. 尝试抓取页面 HTML 提取 declared icon（超时 2 秒防挂起）
       try {
-        const pageResult = await fetchWithSafeLimits(safeUrl.toString())
+        const pageResult = await fetchWithSafeLimits(safeUrl.toString(), 2, 2000)
         if (pageResult.contentType.includes("text/html")) {
           const html = pageResult.buffer.toString("utf-8")
           const iconUrls = extractIconsFromHtml(html, safeUrl.toString())
@@ -295,7 +321,7 @@ export function createFaviconService(dataDir: string) {
         // 忽略页面 HTML 探测失败
       }
 
-      // 3. 追加默认 /favicon.ico 作为候选
+      // 5. 追加默认 /favicon.ico 作为候选
       try {
         const defaultIco = new URL("/favicon.ico", safeUrl.origin).toString()
         if (!candidateUrls.includes(defaultIco)) {
@@ -305,7 +331,7 @@ export function createFaviconService(dataDir: string) {
         // 忽略 URL 构建异常
       }
 
-      // 4. 若已有旧缓存，保留作为 fallback
+      // 6. 若已有旧缓存，保留作为 fallback
       let fallbackIconUrl = ""
       for (const ext of [".png", ".ico", ".svg", ".webp", ".jpg"]) {
         const candidateName = urlHash + ext
