@@ -3,6 +3,7 @@ import { onBeforeRouteLeave } from 'vue-router'
 import { isThemeConfig, scopedCss, type HomeSettings } from '@laull-home/shared'
 import { createAutoSave } from '../utils/autoSave'
 import { getLegacyColorSeed, normalizeThemeId, presetConfig } from '../utils/themePresets'
+import { setCachedSettings } from '../utils/localCache'
 
 // 外观草稿跨设置分页共享，串行写入并使用服务端版本锁。
 export function useSettingsDraft() {
@@ -24,6 +25,7 @@ export function useSettingsDraft() {
     const result = await $api.settings.put({ ...value, revision })
     if (!result.data) throw new Error(result.error?.value.message ?? '保存失败，请重试')
     revision = result.data.revision
+    setCachedSettings(result.data)
   }, (next, error) => {
     state.value = next
     message.value = error instanceof Error ? error.message : ({ pending: '等待保存', saving: '保存中', saved: '已自动保存', error: '保存失败，请重试' }[next])

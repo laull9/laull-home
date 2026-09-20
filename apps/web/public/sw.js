@@ -1,5 +1,5 @@
-// PWA 静态资源缓存版本标识。
-const CACHE_NAME = 'laull-home-cache-v1'
+// PWA 静态资源与普通空间离线缓存版本标识。
+const CACHE_NAME = 'laull-home-cache-v2'
 
 // 判断请求是否必须严格排除在缓存之外。
 function shouldBypassCache(request) {
@@ -25,7 +25,25 @@ function shouldBypassCache(request) {
   // 3. 严格排除 SSE 长连接与 MCP 协议通道。
   if (pathname.startsWith('/api/v1/desktop/events') || pathname.startsWith('/api/v1/mcp')) return true
 
-  // 4. 所有其他动态 API 接口一律走网络，不写入离线 CacheStorage。
+  // 4. 严格排除备份管理与外部微服务实时代理请求。
+  if (pathname.startsWith('/api/v1/backups') || pathname.startsWith('/api/v1/integrations')) return true
+
+  // 5. 放行静态媒体资产：图标与壁纸图片，支持长期高速离线访问。
+  if (pathname.startsWith('/api/v1/icons/') || pathname.startsWith('/api/v1/wallpapers/image/')) return false
+
+  // 6. 放行普通空间核心只读接口，支持全功能离线浏览与 SWR 缓存。
+  if (
+    pathname === '/api/v1/settings' ||
+    pathname === '/api/v1/search/engines' ||
+    pathname === '/api/v1/spaces' ||
+    pathname === '/api/v1/bookmarks' ||
+    pathname === '/api/v1/bookmarks/groups' ||
+    pathname.startsWith('/api/v1/desktop/')
+  ) {
+    return false
+  }
+
+  // 7. 所有其他未明确声明的 API 接口一律走网络。
   if (pathname.startsWith('/api/v1/')) return true
 
   return false

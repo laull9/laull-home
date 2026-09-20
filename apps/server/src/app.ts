@@ -177,24 +177,56 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       const spaceToken = typeof cookie.lh_space_session?.value === 'string' ? cookie.lh_space_session.value : undefined
       return { user, sessionToken: token as string, spaceToken }
     })
-    .get('/search/engines', () => {
-      return { engines: searchService.list() }
+    .get('/search/engines', ({ request, set, status }) => {
+      const engines = searchService.list()
+      const maxTime = engines.reduce((max, e) => Math.max(max, e.updatedAt || 0), 0)
+      const etag = `W/"engines-${engines.length}-${maxTime}"`
+      set.headers['etag'] = etag
+      set.headers['cache-control'] = 'private, no-cache'
+      if (request.headers.get('if-none-match') === etag) {
+        return status(304)
+      }
+      return { engines }
     })
     .get('/search/suggestions', async ({ query }) => {
       const suggestions = await searchService.getSuggestions(query.q, query.engineId)
       return { suggestions }
     }, { query: searchSuggestionsQuerySchema })
-    .get('/bookmarks/groups', ({ query, user, spaceToken, status }) => {
+    .get('/bookmarks/groups', ({ query, user, spaceToken, request, set, status }) => {
       const spaceId = query.spaceId ?? 'default'
       const isUnlocked = spaces.verifyAccess(user.id, spaceId, spaceToken)
       if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
-      return { groups: bookmarksService.listGroups(spaceId, isUnlocked, false) }
+      if (spaceId === 'privacy') {
+        set.headers['cache-control'] = 'no-store'
+        return { groups: bookmarksService.listGroups(spaceId, isUnlocked, false) }
+      }
+      const groups = bookmarksService.listGroups(spaceId, isUnlocked, false)
+      const maxTime = groups.reduce((max, g) => Math.max(max, g.updatedAt || 0), 0)
+      const etag = `W/"groups-${spaceId}-${groups.length}-${maxTime}"`
+      set.headers['etag'] = etag
+      set.headers['cache-control'] = 'private, no-cache'
+      if (request.headers.get('if-none-match') === etag) {
+        return status(304)
+      }
+      return { groups }
     }, { query: t.Object({ spaceId: t.Optional(t.String()) }) })
-    .get('/bookmarks', ({ query, user, spaceToken, status }) => {
+    .get('/bookmarks', ({ query, user, spaceToken, request, set, status }) => {
       const spaceId = query.spaceId ?? 'default'
       const isUnlocked = spaces.verifyAccess(user.id, spaceId, spaceToken)
       if (spaceId === 'privacy' && !isUnlocked) return status(403, { code: 'FORBIDDEN', message: '隐私空间尚未解锁' })
-      return { bookmarks: bookmarksService.listBookmarks(spaceId, isUnlocked, false, query.groupId) }
+      if (spaceId === 'privacy') {
+        set.headers['cache-control'] = 'no-store'
+        return { bookmarks: bookmarksService.listBookmarks(spaceId, isUnlocked, false, query.groupId) }
+      }
+      const bookmarks = bookmarksService.listBookmarks(spaceId, isUnlocked, false, query.groupId)
+      const maxTime = bookmarks.reduce((max, b) => Math.max(max, b.updatedAt || 0), 0)
+      const etag = `W/"bookmarks-${spaceId}-${query.groupId || 'all'}-${bookmarks.length}-${maxTime}"`
+      set.headers['etag'] = etag
+      set.headers['cache-control'] = 'private, no-cache'
+      if (request.headers.get('if-none-match') === etag) {
+        return status(304)
+      }
+      return { bookmarks }
     }, { query: t.Object({ spaceId: t.Optional(t.String()), groupId: t.Optional(t.String()) }) })
     .get('/auth/me', async ({ user }) => {
       const isDefaultPassword = await Bun.password.verify('admin', user.passwordHash)
@@ -229,7 +261,16 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       auth.revokeOthers(user.id, sessionToken)
       return { success: true }
     })
-    .get('/settings', ({ user }) => settings.get(user.id))
+    .get('/settings', ({ user, request, set, status }) => {
+      const result = settings.get(user.id)
+      const etag = `W/"settings-${result.revision}"`
+      set.headers['etag'] = etag
+      set.headers['cache-control'] = 'private, no-cache'
+      if (request.headers.get('if-none-match') === etag) {
+        return status(304)
+      }
+      return result
+    })
     .put('/settings', ({ user, body, status }) => {
       const result = settings.update(user.id, body)
       if (!result) return status(409, { code: 'REVISION_CONFLICT', message: '设置已在其他设备更新，请重新读取' })
@@ -243,9 +284,20 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       broadcastDesktopEvent('layout.updated', { spaceId: params.spaceId })
       return result
     }, { params: t.Object({ spaceId: t.String({ maxLength: 64 }) }), body: mergeWidgetsSchema })
-    .get('/desktop/:spaceId', ({ user, params, spaceToken, status }) => {
+    .get('/desktop/:spaceId', ({ user, params, spaceToken, request, set, status }) => {
       if (!spaces.verifyAccess(user.id, params.spaceId, spaceToken)) return status(403, { code: 'FORBIDDEN', message: '空间不存在或尚未解锁' })
-      return desktop.get(params.spaceId)
+      const desk = desktop.get(params.spaceId)
+      if (params.spaceId === 'privacy') {
+        set.headers['cache-control'] = 'no-store'
+        return desk
+      }
+      const etag = `W/"desktop-${params.spaceId}-${desk.revision}"`
+      set.headers['etag'] = etag
+      set.headers['cache-control'] = 'private, no-cache'
+      if (request.headers.get('if-none-match') === etag) {
+        return status(304)
+      }
+      return desk
     }, { params: t.Object({ spaceId: t.String({ maxLength: 64 }) }) })
     .put('/desktop/:spaceId', ({ user, params, body, spaceToken, status }) => {
       if (!spaces.verifyAccess(user.id, params.spaceId, spaceToken)) return status(403, { code: 'FORBIDDEN', message: '空间不存在或尚未解锁' })
