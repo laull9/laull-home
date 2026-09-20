@@ -66,16 +66,40 @@ describe('PWA Service Worker 缓存排除安全红线验证', () => {
     }
   })
 
-  test('动态 API 一律透传网络，不写入离线 CacheStorage', () => {
-    const apiEndpoints = [
+  test('备份管理与外部微服务代理接口严禁缓存', () => {
+    const sensitiveEndpoints = [
+      'https://example.com/api/v1/backups/snapshots',
+      'https://example.com/api/v1/backups/restore',
+      'https://example.com/api/v1/integrations/int-1/widgets/w-1/data',
+      'https://example.com/api/v1/integrations',
+    ]
+    for (const url of sensitiveEndpoints) {
+      expect(swModule.shouldBypassCache({ method: 'GET', url })).toBe(true)
+    }
+  })
+
+  test('普通空间核心只读 API 允许进入离线缓存策略', () => {
+    const normalApiEndpoints = [
       'https://example.com/api/v1/settings',
       'https://example.com/api/v1/bookmarks',
       'https://example.com/api/v1/bookmarks/groups?spaceId=default',
       'https://example.com/api/v1/desktop/default',
       'https://example.com/api/v1/search/engines',
+      'https://example.com/api/v1/spaces',
     ]
-    for (const url of apiEndpoints) {
-      expect(swModule.shouldBypassCache({ method: 'GET', url })).toBe(true)
+    for (const url of normalApiEndpoints) {
+      expect(swModule.shouldBypassCache({ method: 'GET', url })).toBe(false)
+    }
+  })
+
+  test('静态图标与壁纸图片允许进入离线高速缓存策略', () => {
+    const mediaEndpoints = [
+      'https://example.com/api/v1/icons/hash123.png',
+      'https://example.com/api/v1/icons/google.ico',
+      'https://example.com/api/v1/wallpapers/image/photo.webp',
+    ]
+    for (const url of mediaEndpoints) {
+      expect(swModule.shouldBypassCache({ method: 'GET', url })).toBe(false)
     }
   })
 

@@ -3,7 +3,8 @@ import AlertModal from '../components/AlertModal.vue'
 import DesktopCanvas from '../components/desktop/DesktopCanvas.vue'
 import DesktopEditBar from '../components/desktop/DesktopEditBar.vue'
 import { useDesktopEvents } from '../composables/useDesktopEvents'
-import type { Bookmark, Breakpoint } from "@laull-home/shared"
+import type { Bookmark, Breakpoint, HomeSettings } from "@laull-home/shared"
+import { getCachedSettings, setCachedSettings, clearAllLocalCaches } from '../utils/localCache'
 
 // 启用身份鉴权守卫，未登录直接进入独立登录页面。
 definePageMeta({
@@ -108,6 +109,16 @@ const editingGroupId = ref<string | null>(null)
 
 // 页面加载恢复状态并获取数据。
 onMounted(async () => {
+  // 1. 优先使用本地持久化缓存还原外观设置，消除主题抖动并实现即刻渲染。
+  const cachedSettings = getCachedSettings<HomeSettings>()
+  if (cachedSettings) {
+    pageTitle.value = cachedSettings.title
+    if (cachedSettings.allowDragWithoutEdit !== undefined) {
+      allowDragWithoutEdit.value = cachedSettings.allowDragWithoutEdit
+    }
+    applyTheme(cachedSettings)
+  }
+
   try {
     await refresh()
   } catch {
@@ -122,6 +133,7 @@ onMounted(async () => {
         allowDragWithoutEdit.value = res.data.allowDragWithoutEdit
       }
       applyTheme(res.data)
+      setCachedSettings(res.data)
     }
   } catch {
     // 访客读取失败保持默认
@@ -224,8 +236,9 @@ async function handleSaveGroup(name?: string) {
   showGroupPrompt.value = false
 }
 
-// 处理用户登出，跳转独立登录页面。
+// 处理用户登出，清空本地缓存并跳转独立登录页面。
 async function handleLogout() {
+  clearAllLocalCaches()
   await logout()
   await navigateTo('/login')
 }

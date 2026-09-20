@@ -7,6 +7,7 @@ import type {
   WallpaperPool,
   WallpaperQuotaInfo,
 } from '@laull-home/shared'
+import { setCachedSettings } from '../utils/localCache'
 
 // 全局自动轮换定时器引用。
 let rotateTimer: ReturnType<typeof setInterval> | null = null
@@ -140,6 +141,7 @@ export function useWallpapers() {
         if (res.data) {
           settings.value.revision = res.data.revision
           settings.value.activeWallpaperPoolId = poolId
+          setCachedSettings(res.data)
         }
       }
       return true
@@ -318,6 +320,7 @@ export function useWallpapers() {
           const res = await $api.settings.put(nextSettings)
           if (res.data) {
             settings.value.revision = res.data.revision
+            setCachedSettings(res.data)
           }
         } catch {
           // 静默处理轮换保存网络波动

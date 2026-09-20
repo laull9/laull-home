@@ -5,6 +5,8 @@ import {
   type SearchQueryResult,
   type UpdateSearchEngineInput,
 } from "@laull-home/shared"
+import { getCachedSearchEngines, setCachedSearchEngines } from '../utils/localCache'
+import { fetchClientSuggestions } from '../utils/clientSuggestions'
 
 // 搜索引擎客户端状态与查询解析。
 export function useSearch() {
@@ -12,12 +14,21 @@ export function useSearch() {
   const loading = ref(false)
   const { $api } = useNuxtApp()
 
-  // 读取所有搜索引擎。
+  // 读取所有搜索引擎，优先呈现本地缓存并异步对齐服务端数据。
   async function fetchEngines() {
-    loading.value = true
+    const cached = getCachedSearchEngines<SearchEngine[]>()
+    if (cached && Array.isArray(cached) && cached.length > 0) {
+      engines.value = cached
+    } else {
+      loading.value = true
+    }
+
     try {
       const res = await $api.search.engines.get()
-      if (res.data) engines.value = res.data.engines
+      if (res.data) {
+        engines.value = res.data.engines
+        setCachedSearchEngines(res.data.engines)
+      }
     } finally {
       loading.value = false
     }
@@ -56,21 +67,12 @@ export function useSearch() {
     await fetchEngines()
   }
 
-  // 获取关联关键词建议列表。
+  // 在浏览器客户端直接拉取联想建议词，不经服务端中转。
   async function fetchSuggestions(query: string, engineId?: string): Promise<string[]> {
     const trimmed = query.trim()
     if (!trimmed) return []
-    try {
-      const res = await $api.search.suggestions.get({
-        query: {
-          q: trimmed,
-          engineId: engineId || undefined,
-        },
-      })
-      return res.data?.suggestions ?? []
-    } catch {
-      return []
-    }
+    const targetEngine = (engineId ? engines.value.find(e => e.id === engineId) : null) ?? defaultEngine.value
+    return fetchClientSuggestions(trimmed, targetEngine)
   }
 
   return {

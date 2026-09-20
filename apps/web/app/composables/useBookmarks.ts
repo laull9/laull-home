@@ -8,6 +8,7 @@ import type {
   UpdateBookmarkGroupInput,
   UpdateBookmarkInput,
 } from "@laull-home/shared"
+import { getCachedBookmarks, setCachedBookmarks, isPrivacySpace } from '../utils/localCache'
 
 // 书签与分组客户端数据管理。
 export function useBookmarks() {
@@ -19,22 +20,51 @@ export function useBookmarks() {
   // 多处发起重读时只接纳最新请求。
   const readVersion = useState<number>('bookmarks:read-version', () => 0)
 
-  // 读取指定空间下的分组与书签。
+  // 读取指定空间下的分组与书签，普通空间优先使用本地缓存，隐私空间严格隔离。
   async function loadData(spaceId = "default") {
     const requestVersion = ++readVersion.value
-    loading.value = true
     error.value = ""
+
+    // 1. 普通空间优先尝试从本地持久化缓存还原书签与分组，实现即时上屏。
+    let hasLocalSnapshot = false
+    if (!isPrivacySpace(spaceId)) {
+      const cached = getCachedBookmarks<{ groups: BookmarkGroup[]; bookmarks: Bookmark[] }>(spaceId)
+      if (cached) {
+        if (Array.isArray(cached.groups)) groups.value = cached.groups
+        if (Array.isArray(cached.bookmarks)) bookmarks.value = cached.bookmarks
+        hasLocalSnapshot = true
+      }
+    }
+
+    if (!hasLocalSnapshot) {
+      loading.value = true
+    }
+
     try {
       const [groupsRes, bookmarksRes] = await Promise.all([
         $api.bookmarks.groups.get({ query: { spaceId } }),
         $api.bookmarks.get({ query: { spaceId } }),
       ])
       if (requestVersion !== readVersion.value) return
-      if (groupsRes.error || bookmarksRes.error) throw new Error('书签读取失败或空间授权已过期')
+      const isGroups304 = groupsRes.status === 304
+      const isBookmarks304 = bookmarksRes.status === 304
+      if ((groupsRes.error && !isGroups304) || (bookmarksRes.error && !isBookmarks304)) {
+        throw new Error('书签读取失败或空间授权已过期')
+      }
       if (groupsRes.data) groups.value = groupsRes.data.groups
       if (bookmarksRes.data) bookmarks.value = bookmarksRes.data.bookmarks
+
+      // 普通空间同步更新最新快照到本地缓存。
+      if (!isPrivacySpace(spaceId) && groupsRes.data && bookmarksRes.data) {
+        setCachedBookmarks(spaceId, {
+          groups: groupsRes.data.groups,
+          bookmarks: bookmarksRes.data.bookmarks,
+        })
+      }
     } catch (err: unknown) {
-      if (requestVersion === readVersion.value) error.value = err instanceof Error ? err.message : "加载书签失败"
+      if (requestVersion === readVersion.value && !hasLocalSnapshot) {
+        error.value = err instanceof Error ? err.message : "加载书签失败"
+      }
     } finally {
       if (requestVersion === readVersion.value) loading.value = false
     }

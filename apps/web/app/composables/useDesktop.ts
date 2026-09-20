@@ -1,7 +1,8 @@
 import { ref } from 'vue'
 import { findBottomRightPlacement, newWidget, type Desktop, type WidgetNode, type Breakpoint } from '@laull-home/shared'
+import { getCachedDesktop, setCachedDesktop, isPrivacySpace } from '../utils/localCache'
 
-// 画布草稿仅保存在内存中，切换空间清除，保存通过服务端版本锁。
+// 画布在普通空间优先使用本地缓存秒开与静默校验，隐私空间仅存内存。
 export function useDesktop() {
   const { $api } = useNuxtApp()
   const data = ref<Desktop | null>(null)
@@ -11,25 +12,53 @@ export function useDesktop() {
   const dirty = ref(false)
   let generation = 0
   let currentSpace = ''
-  // 空间切换的旧响应不能覆盖新空间。
+  // 读取指定空间画布，普通空间应用 SWR 策略，隐私空间严格纯内存化。
   async function load(spaceId: string) {
     const request = ++generation
-    // 跨空间加载时清空旧数据，同空间重读保持旧数据平滑更新。
+    // 跨空间加载时清空旧数据。
     if (currentSpace !== spaceId) {
       data.value = null
     }
     currentSpace = spaceId
     dirty.value = false
     error.value = ''
-    loading.value = true
+
+    // 1. 普通空间优先尝试从本地持久化缓存瞬间还原桌面，实现零等待秒开。
+    let hasLocalSnapshot = false
+    if (!isPrivacySpace(spaceId)) {
+      const cached = getCachedDesktop<Desktop>(spaceId)
+      if (cached && cached.nodes) {
+        data.value = cached
+        hasLocalSnapshot = true
+      }
+    }
+
+    // 仅在完全没有本地快照可展示时才对外呈现阻塞式 loading 状态。
+    if (!hasLocalSnapshot) {
+      loading.value = true
+    }
+
     try {
       const result = await $api.desktop({ spaceId }).get()
       if (request !== generation) return
-      if (!result.data) throw new Error(result.error?.value.message ?? '读取画布失败')
+      if (result.status === 304) return
+      const errObj = result.error?.value
+      const errMsg = (typeof errObj === 'object' && errObj && 'message' in errObj ? String(errObj.message) : undefined) ?? '读取画布失败'
+      if (!result.data) throw new Error(errMsg)
+
+      // 服务端最新快照返回，平滑更新并同步至本地缓存。
       data.value = result.data
+      if (!isPrivacySpace(spaceId)) {
+        setCachedDesktop(spaceId, result.data)
+      }
     } catch (cause) {
-      if (request === generation) error.value = cause instanceof Error ? cause.message : '读取画布失败'
-    } finally { if (request === generation) loading.value = false }
+      // 离线断网且已有本地快照可用时宽容放行，避免阻断离线使用。
+      if (request === generation && !hasLocalSnapshot) {
+        error.value = cause instanceof Error ? cause.message : '读取画布失败'
+      }
+    } finally {
+      if (request === generation) loading.value = false
+    }
   }
   let queuedSave = false
   // 保存失败保留草稿供重试或主动重读，支持在写入期间排队下一次最新快照。
@@ -48,6 +77,9 @@ export function useDesktop() {
       if (!result.data) throw new Error(result.error?.value.message ?? '保存失败')
       if (data.value) {
         data.value.revision = result.data.revision
+        if (!isPrivacySpace(currentSpace)) {
+          setCachedDesktop(currentSpace, data.value)
+        }
       }
       dirty.value = false
     } catch (cause) {
@@ -71,6 +103,9 @@ export function useDesktop() {
       if (request !== generation) return false
       if (!result.data) throw new Error(result.error?.value.message ?? '合并失败')
       data.value = result.data
+      if (!isPrivacySpace(currentSpace)) {
+        setCachedDesktop(currentSpace, data.value)
+      }
       dirty.value = false
       return true
     } catch (cause) { error.value = cause instanceof Error ? cause.message : '合并失败'; return false }

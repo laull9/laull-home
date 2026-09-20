@@ -391,11 +391,12 @@ export function createSearchService(db: AppDatabase) {
           const text = decodeBufferWithEncoding(rawBuffer, res.headers.get("content-type"))
           const items = parseSuggestionsPayload(text)
           if (items.length > 0) {
+            // 建议词缓存 10 分钟，避免高频输入时重复发起外网探测。
             suggestionCache.set(cacheKey, {
-              expiresAt: Date.now() + 60_000,
+              expiresAt: Date.now() + 10 * 60_000,
               items,
             })
-            if (suggestionCache.size > 500) {
+            if (suggestionCache.size > 1000) {
               const now = Date.now()
               for (const [key, val] of suggestionCache) {
                 if (val.expiresAt <= now) suggestionCache.delete(key)
