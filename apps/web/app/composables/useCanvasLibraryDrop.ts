@@ -15,7 +15,7 @@ export interface UseCanvasLibraryDropOptions {
   createGroup: (input: { spaceId: string; name: string }) => Promise<BookmarkGroup | null>
   update: (node: WidgetNode) => void
   save: () => Promise<void>
-  handleAddWidget: (type: WidgetNode['type'], variant?: string, size?: { w: number; h: number }, frameless?: boolean, refId?: string) => void
+  handleAddWidget: (type: WidgetNode['type'], variant?: string, size?: { w: number; h: number }, frameless?: boolean, refId?: string) => Promise<void> | void
   handleDropToFolder: (groupId: string, dragText: string) => Promise<boolean>
   handleDropToCanvas: (dragText: string, targetP: Placement) => Promise<boolean>
 }
@@ -131,7 +131,7 @@ export function useCanvasLibraryDrop(options: UseCanvasLibraryDropOptions) {
     const frameless = parts[4] === 'frameless'
     const refId = (parts[4] && parts[4] !== 'frameless' && parts[4] !== 'card') ? parts[4] : (parts[5] || undefined)
     const size = (w && h) ? { w, h } : undefined
-    options.handleAddWidget(type, variant, size, frameless, refId)
+    await options.handleAddWidget(type, variant, size, frameless, refId)
     const node = options.data.value.nodes.at(-1)
     if (!node) return
     if (targetP) {

@@ -309,3 +309,52 @@ test('文件夹内书签移出落盘至桌面生成独立书签组件并脱离�
   expect(foundA.groupId).toBeNull()
   expect(foundB.groupId).toBe(group.id)
 })
+
+test('文件夹之间严格独立：禁止不同文件夹绑定相同分组，且各文件夹书签读写完全隔离', async () => {
+  const { request, cookie } = await fixture()
+
+  // 1. 创建两个独立的分组与各自的书签。
+  const grp1Res = await request('/bookmarks/groups', 'POST', { spaceId: 'default', name: '文件夹一' }, cookie)
+  const grp2Res = await request('/bookmarks/groups', 'POST', { spaceId: 'default', name: '文件夹二' }, cookie)
+  const group1 = (await grp1Res.json()).group
+  const group2 = (await grp2Res.json()).group
+
+  const bm1Res = await request('/bookmarks', 'POST', { groupId: group1.id, title: '图标1', url: 'https://example.com/1' }, cookie)
+  const bm2Res = await request('/bookmarks', 'POST', { groupId: group2.id, title: '图标2', url: 'https://example.com/2' }, cookie)
+  const bm1 = (await bm1Res.json()).bookmark
+  const bm2 = (await bm2Res.json()).bookmark
+
+  // 2. 尝试将两个文件夹组件绑定到相同分组，服务端必须直接拦截并返回 400。
+  const conflictDesktop = {
+    revision: 0,
+    nodes: [
+      { ...newWidget('folder', 'folder-alpha', 'launchpad'), title: '文件夹一', referenceId: group1.id },
+      { ...newWidget('folder', 'folder-beta', 'launchpad'), title: '文件夹二', referenceId: group1.id },
+    ],
+    templates: [],
+  }
+  const conflictSave = await request('/desktop/default', 'PUT', conflictDesktop, cookie)
+  expect(conflictSave.status).toBe(400)
+  expect((await conflictSave.json()).message).toBe('不同文件夹不能绑定相同分组')
+
+  // 3. 两个文件夹分别绑定各自独立分组，保存成功。
+  const independentDesktop = {
+    revision: 0,
+    nodes: [
+      { ...newWidget('folder', 'folder-alpha', 'launchpad'), title: '文件夹一', referenceId: group1.id },
+      { ...newWidget('folder', 'folder-beta', 'launchpad'), title: '文件夹二', referenceId: group2.id },
+    ],
+    templates: [],
+  }
+  const successSave = await request('/desktop/default', 'PUT', independentDesktop, cookie)
+  expect(successSave.status).toBe(200)
+
+  // 4. 从文件夹一移出书签 1 为独立书签，验证文件夹二中的书签 2 保持原状不受任何影响。
+  await request(`/bookmarks/${bm1.id}`, 'PUT', { groupId: null }, cookie)
+  const bookmarksList = (await (await request('/bookmarks', 'GET', undefined, cookie)).json()).bookmarks
+  const updatedBm1 = bookmarksList.find((b: { id: string }) => b.id === bm1.id)
+  const updatedBm2 = bookmarksList.find((b: { id: string }) => b.id === bm2.id)
+  expect(updatedBm1.groupId).toBeNull()
+  expect(updatedBm2.groupId).toBe(group2.id)
+})
+
