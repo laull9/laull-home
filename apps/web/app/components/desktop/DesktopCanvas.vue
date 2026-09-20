@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onBeforeRouteLeave } from 'vue-router'
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
-import { arrangeNodes, findBottomRightPlacement, newWidget, BREAKPOINTS, isWidget, scopedCss, type WidgetNode, type Bookmark, type BookmarkGroup, type Breakpoint, type Placement } from '@laull-home/shared'
+import { arrangeNodes, BREAKPOINTS, isWidget, scopedCss, type WidgetNode, type Bookmark, type BookmarkGroup, type Breakpoint, type Placement } from '@laull-home/shared'
 import { useWidgetDrag } from '../../composables/useWidgetDrag'
 import { useGridFlip } from '../../composables/useGridFlip'
 import { useDesktop } from '../../composables/useDesktop'
@@ -13,6 +13,7 @@ import WidgetEditor from './WidgetEditor.vue'
 import ComponentTree from './ComponentTree.vue'
 import { useCanvasLibraryDrop } from '../../composables/useCanvasLibraryDrop'
 import { useCanvasShortcuts } from '../../composables/useCanvasShortcuts'
+import { useCanvasWidgetAdd } from '../../composables/useCanvasWidgetAdd'
 
 // 外部双向同步断点与叠放模式。
 const selectedBreakpoint = defineModel<'auto' | Breakpoint>('selectedBreakpoint', { default: 'auto' })
@@ -38,6 +39,21 @@ const { handleDropToCanvas, handleDropToFolder } = useFolderItemDrag({
   updateBookmark,
   save,
   refresh: () => emit('refresh'),
+})
+// 组件添加与文件夹独立性管理。
+const { handleAddWidget, handleEditorCopy, ensureFoldersIndependent, addNavigation } = useCanvasWidgetAdd({
+  data,
+  saving,
+  dirty,
+  breakpoint,
+  spaceId: () => props.spaceId,
+  editing: () => props.editing,
+  bookmarks: () => props.bookmarks,
+  groups: () => props.groups,
+  createGroup,
+  add,
+  save,
+  setError: msg => { error.value = msg },
 })
 const canvas = ref<HTMLElement | null>(null)
 // 实时组件树面板显隐状态。
@@ -86,24 +102,6 @@ async function cancelChanges() {
     await save()
   } catch { /* 忽略还原异常 */ }
 }
-// 保存新书签后在当前桌面创建脱离底座图标组件，保持非编辑状态。
-function addNavigation(bookmark: Bookmark, variant?: string) {
-  if (!data.value || saving.value) return
-  const w = variant === 'pill' ? 2 : 1
-  const placement = findBottomRightPlacement(data.value.nodes, w, 1, breakpoint.value)
-  add('bookmark', {
-    ...newWidget('bookmark', crypto.randomUUID(), variant),
-    title: bookmark.title,
-    referenceId: bookmark.id,
-    ...(variant ? { variant } : {}),
-    layouts: {
-      desktop: { x: placement.x, y: placement.y, w, h: 1, pinned: true },
-      [breakpoint.value]: { x: placement.x, y: placement.y, w, h: 1, pinned: true },
-    },
-    style: { opacity: 100, blur: 0, radius: 16, padding: 8, border: 0, color: '', background: '', frameless: true },
-  })
-  if (!props.editing) void save()
-}
 // 供外部控制组件树显隐、取消改动与右键菜单。
 defineExpose({ addNavigation, openContext, cancelChanges, reload, toggleTree: () => { showComponentTree.value = !showComponentTree.value }, openTree: () => { showComponentTree.value = true } })
 // 自动断点取实际可用宽度。
@@ -113,7 +111,12 @@ function resize() {
   breakpoint.value = width >= 1160 ? 'desktop' : width >= 800 ? 'laptop' : width >= 560 ? 'tablet' : 'mobile'
 }
 watch(selectedBreakpoint, resize)
-watch(() => props.spaceId, id => { selected.value = null; showComponentTree.value = false; void load(id) }, { immediate: true })
+watch(() => props.spaceId, async id => {
+  selected.value = null
+  showComponentTree.value = false
+  await load(id)
+  await ensureFoldersIndependent()
+}, { immediate: true })
 // 每个节点对应无重叠的网格矩形。
 const positions = computed(() => arrangeNodes(data.value?.nodes ?? [], breakpoint.value))
 // 同尺寸叠放保留一个可见组件。
@@ -266,19 +269,6 @@ function isFrameless(node: WidgetNode) {
   if (node.type === 'bookmark') return node.style?.frameless !== false
   return node.style?.frameless === true
 }
-// 统一处理组件添加，自动补全真实分组与书签绑定。
-function handleAddWidget(type: WidgetNode['type'], variant?: string, size?: { w: number; h: number }, frameless?: boolean, refId?: string) {
-  let targetRefId = refId
-  let targetTitle: string | undefined
-  if (type === 'folder') {
-    const group = props.groups.find(g => g.id === targetRefId) || props.groups[0]
-    if (group) { targetRefId = group.id; targetTitle = group.name }
-  } else if (type === 'bookmark') {
-    const bm = props.bookmarks.find(b => b.id === targetRefId) || props.bookmarks[0]
-    if (bm) { targetRefId = bm.id; targetTitle = bm.title }
-  }
-  add(type, undefined, variant, size, { frameless, referenceId: targetRefId, title: targetTitle, breakpoint: breakpoint.value })
-}
 // 组件树与外部条目网格放置与文件夹吸收拖拽逻辑。
 const { libraryPreview, nativeHoverFolderId, libraryOver, libraryLeave, drop } = useCanvasLibraryDrop({
   canvas,
@@ -358,16 +348,23 @@ watch(dirty, isDirty => {
 
 // 统一响应组件就地内容变更并在常态下排队自动保存。
 function handleWidgetUpdate(node: WidgetNode) { update(node) }
-// 响应配置弹窗保存。
+// 响应配置弹窗保存，严格防范文件夹分组重复占用。
 function handleEditorSave(node: WidgetNode) {
   const safeNode = { ...node, title: node.title.trim() || '新组件' }
+  if (safeNode.type === 'folder' && safeNode.referenceId) {
+    const isDuplicate = (data.value?.nodes ?? []).some(
+      n => n.type === 'folder' && n.id !== safeNode.id && n.referenceId === safeNode.referenceId,
+    )
+    if (isDuplicate) {
+      error.value = '该分组已被其他文件夹使用，文件夹之间必须独立'
+      return
+    }
+  }
   update(safeNode)
   if (safeNode.type === 'folder' && safeNode.referenceId) {
     void updateGroup(safeNode.referenceId, props.spaceId, { name: safeNode.title })
   }
 }
-// 响应配置弹窗复制。
-function handleEditorCopy(node: WidgetNode) { add(node.type, node) }
 // 响应配置弹窗模板保存。
 function handleEditorTemplate(node: WidgetNode) { template(node) }
 // 响应配置弹窗删除。

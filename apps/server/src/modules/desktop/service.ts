@@ -15,11 +15,13 @@ export function createDesktopService(db: AppDatabase) {
     }))
     return { revision: 0, nodes: [search, clock, ...folders], templates: [] }
   }
-  // 校验引用归属、时区、叠放尺寸、CSS 与容量。
+  // 校验引用归属、文件夹独立性、时区、叠放尺寸、CSS 与容量。
   function validate(spaceId: string, value: Desktop) {
     if (new TextEncoder().encode(JSON.stringify(value)).length > 512 * 1024) throw new BookmarkError(400, '画布超过 512 KiB')
     for (const list of [value.nodes, value.templates]) {
       if (new Set(list.map(node => node.id)).size !== list.length) throw new BookmarkError(400, '组件编号重复')
+      const folderRefIds = list.filter(node => node.type === 'folder' && node.referenceId).map(node => node.referenceId)
+      if (new Set(folderRefIds).size !== folderRefIds.length) throw new BookmarkError(400, '不同文件夹不能绑定相同分组')
       const stacks = new Map<string, string>()
       for (const node of list) {
         try { scopedCss(node.css, '#widget-' + node.id) } catch (error) {
