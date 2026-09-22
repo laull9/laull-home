@@ -7,7 +7,11 @@ const swPath = join(__dirname, '../../web/public/sw.js')
 const swContent = readFileSync(swPath, 'utf-8')
 
 // 在受控沙箱上下文中执行导出逻辑以供测试。
-const mod: { exports: { shouldBypassCache: (req: { method: string; url: string }) => boolean } } = {
+const mod: { exports: {
+  shouldBypassCache: (req: { method: string; url: string }) => boolean
+  getCachePolicy?: (req: { method: string; url: string }) => string
+  cacheKey?: (req: { url: string }, policy: string) => string
+} } = {
   exports: { shouldBypassCache: () => false },
 }
 
@@ -116,5 +120,19 @@ describe('PWA Service Worker 缓存排除安全红线验证', () => {
     for (const url of staticAssets) {
       expect(swModule.shouldBypassCache({ method: 'GET', url })).toBe(false)
     }
+  })
+
+  test('页面、静态资源、媒体与普通数据使用独立策略', () => {
+    expect(swModule.getCachePolicy?.({ method: 'GET', url: 'https://example.com/' })).toBe('page')
+    expect(swModule.getCachePolicy?.({ method: 'GET', url: 'https://example.com/_nuxt/app.js' })).toBe('asset')
+    expect(swModule.getCachePolicy?.({ method: 'GET', url: 'https://example.com/api/v1/icons/a.png' })).toBe('media')
+    expect(swModule.getCachePolicy?.({ method: 'GET', url: 'https://example.com/api/v1/desktop/default' })).toBe('data')
+  })
+
+  test('媒体缓存键剔除时间戳但保留其他查询条件', () => {
+    expect(swModule.cacheKey?.(
+      { url: 'https://example.com/api/v1/icons/a.png?size=64&t=123&_=1' },
+      'media',
+    )).toBe('https://example.com/api/v1/icons/a.png?size=64')
   })
 })

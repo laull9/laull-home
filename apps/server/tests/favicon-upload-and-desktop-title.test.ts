@@ -201,7 +201,7 @@ test('服务端仅嗅探候选链接并不直接下载图片，由上传落地�
   expect(getRes.status).toBe(200)
 })
 
-test('服务端探测公网域名优先使用 Favicon.im 并落盘缓存', async () => {
+test('服务端标准路径失败后使用公共图标源并落盘不可变缓存', async () => {
   const originalFetch = globalThis.fetch
   try {
     const requestedUrls: string[] = []
@@ -226,8 +226,8 @@ test('服务端探测公网域名优先使用 Favicon.im 并落盘缓存', async
     const json = await res.json() as { iconUrl: string; candidateUrls?: string[] }
     // 验证优先向 Favicon.im 发起探测
     expect(requestedUrls.some(u => u.includes('favicon.im/example.com'))).toBe(true)
-    expect(json.iconUrl).toMatch(/^\/api\/v1\/icons\/[a-f0-9]+\.png$/)
-    expect(json.candidateUrls?.[0]).toBe('https://favicon.im/example.com?larger=true')
+    expect(json.iconUrl).toMatch(/^\/api\/v1\/icons\/[a-f0-9]+-[a-f0-9]+\.png$/)
+    expect(json.candidateUrls).toContain('https://favicon.im/example.com?larger=true')
   } finally {
     globalThis.fetch = originalFetch
   }

@@ -50,7 +50,7 @@ function handleClick(event: MouseEvent) {
     <!-- 胶囊信息卡模式：横向排版，适合 2x1 或更大卡片 -->
     <template v-if="node.variant === 'pill'">
       <div class="pill-layout">
-        <BookmarkIcon :title="bookmark.title" :icon-url="bookmark.iconUrl" class="pill-icon" />
+        <BookmarkIcon :title="bookmark.title" :icon-url="bookmark.iconUrl" :site-url="bookmark.url" class="pill-icon" />
         <div class="pill-info">
           <span class="pill-title">{{ bookmark.title }}</span>
           <span v-if="host" class="pill-host">{{ host }}</span>
@@ -63,7 +63,7 @@ function handleClick(event: MouseEvent) {
     <template v-else-if="node.variant === 'large'">
       <div class="large-layout">
         <div class="large-icon-wrapper">
-          <BookmarkIcon :title="bookmark.title" :icon-url="bookmark.iconUrl" class="large-icon" />
+          <BookmarkIcon :title="bookmark.title" :icon-url="bookmark.iconUrl" :site-url="bookmark.url" class="large-icon" />
         </div>
       </div>
     </template>
@@ -84,7 +84,7 @@ function handleClick(event: MouseEvent) {
     <!-- 经典标准模式 (默认 1x1) -->
     <template v-else>
       <div class="standard-layout">
-        <BookmarkIcon :title="bookmark.title" :icon-url="bookmark.iconUrl" class="standard-icon" />
+        <BookmarkIcon :title="bookmark.title" :icon-url="bookmark.iconUrl" :site-url="bookmark.url" class="standard-icon" />
         <span class="standard-title">{{ bookmark.title }}</span>
       </div>
     </template>

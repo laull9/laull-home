@@ -61,6 +61,15 @@ export type WidgetNode = Static<typeof widgetSchema>
 export type Desktop = Static<typeof desktopSchema>
 // 坐标类型。
 export type Placement = Static<typeof placementSchema>
+// 以半格为切换点吸附坐标，并在边界保留轻量迟滞避免来回抖动。
+export function snapGridCoordinate(raw: number, previous?: number, hysteresis = 0.08): number {
+  const nearest = Math.round(raw)
+  if (previous === undefined || nearest === previous || Math.abs(nearest - previous) > 1) return nearest
+  const boundary = (nearest + previous) / 2
+  if (nearest > previous && raw < boundary + hysteresis) return previous
+  if (nearest < previous && raw > boundary - hysteresis) return previous
+  return nearest
+}
 // 目录定义尺寸、分类与默认内容。
 export const WIDGET_CATALOG = [
   { type: 'search', title: '搜索', category: 'nav', w: 8, h: 1, desc: '集成搜索引擎与快捷指令' },
@@ -154,6 +163,36 @@ function findBestPlacement(
   return { x: bestX, y: bestY, w, h, pinned: true }
 }
 
+// 流式节点按阅读顺序寻找首个完整空位，保证窄屏重排紧凑且稳定。
+function findFlowPlacement(
+  w: number,
+  h: number,
+  columns: number,
+  occupied: Set<string>,
+): Placement {
+  // 判断候选矩形是否完整落在画布内且没有占用其他节点。
+  const fitsAt = (cx: number, cy: number) => {
+    if (cx < 0 || cx + w > columns || cy < 0) return false
+    for (let y = cy; y < cy + h; y++) {
+      for (let x = cx; x < cx + w; x++) {
+        if (occupied.has(x + ':' + y)) return false
+      }
+    }
+    return true
+  }
+  for (let y = 0; y < 200; y++) {
+    for (let x = 0; x <= columns - w; x++) {
+      if (fitsAt(x, y)) return { x, y, w, h, pinned: true }
+    }
+  }
+  return { x: 0, y: 200, w, h, pinned: true }
+}
+
+// 缺少当前断点布局时使用桌面坐标确定视觉阅读顺序。
+function sourcePlacement(node: WidgetNode, breakpoint: Breakpoint): Placement {
+  return node.layouts[breakpoint] ?? node.layouts.desktop
+}
+
 // 固定节点优先占位，碰撞与越界自动进行智能多向避让与就近换行。
 export function arrangeNodes(
   nodes: WidgetNode[],
@@ -164,18 +203,27 @@ export function arrangeNodes(
   const occupied = new Set<string>()
   const result = new Map<string, Placement>()
   const stacks = new Map<string, Placement>()
-  const ordered = [...nodes].sort((a, b) => Number(b.layouts[breakpoint]?.pinned ?? false) - Number(a.layouts[breakpoint]?.pinned ?? false))
+  const indexes = new Map(nodes.map((node, index) => [node.id, index]))
+  const ordered = [...nodes].sort((a, b) => {
+    const aPinned = Number(a.layouts[breakpoint]?.pinned ?? false)
+    const bPinned = Number(b.layouts[breakpoint]?.pinned ?? false)
+    if (aPinned !== bPinned) return bPinned - aPinned
+    const aSource = sourcePlacement(a, breakpoint)
+    const bSource = sourcePlacement(b, breakpoint)
+    return aSource.y - bSource.y || aSource.x - bSource.x || (indexes.get(a.id) ?? 0) - (indexes.get(b.id) ?? 0)
+  })
   for (const node of ordered) {
     const saved = node.layouts[breakpoint]
-    const p = { ...(saved ?? node.layouts.desktop) }
+    const p = { ...sourcePlacement(node, breakpoint) }
     // 胶囊卡片支持 1 列紧凑并排与 2 列完整横向排版。
     p.w = Math.max(1, Math.min(columns, p.w))
     p.x = Math.min(columns - p.w, p.x)
-    if (!saved || !p.pinned) { p.x = 0; p.y = 0 }
     const stack = node.stackId && stacks.get(node.stackId)
     if (stack && stack.w === p.w && stack.h === p.h) { result.set(node.id, { ...stack }); continue }
 
-    const placed = findBestPlacement(p.x, p.y, p.w, p.h, columns, occupied, vector)
+    const placed = saved?.pinned
+      ? findBestPlacement(p.x, p.y, p.w, p.h, columns, occupied, vector)
+      : findFlowPlacement(p.w, p.h, columns, occupied)
     for (let y = placed.y; y < placed.y + placed.h; y++) {
       for (let x = placed.x; x < placed.x + placed.w; x++) {
         occupied.add(x + ':' + y)

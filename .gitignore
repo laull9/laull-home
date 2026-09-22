@@ -34,3 +34,6 @@ coverage/
 
 # 发布归档
 release/
+
+# tool
+.playwright*/

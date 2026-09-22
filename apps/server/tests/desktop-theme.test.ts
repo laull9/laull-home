@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from 'bun:test'
-import { arrangeNodes, findBottomRightPlacement, newWidget, scopedCss, seedTokens, contrast, DEFAULT_THEME, type Desktop } from '@laull-home/shared'
+import { arrangeNodes, findBottomRightPlacement, newWidget, snapGridCoordinate, scopedCss, seedTokens, contrast, DEFAULT_THEME, type Desktop } from '@laull-home/shared'
 import { createApp } from '../src/app'
 import { openDatabase, type AppDatabase } from '../src/db'
 import { createUser } from '../src/modules/auth/service'
@@ -248,6 +248,43 @@ test('智能多向避让算法：支持向左退让、垂直避让与就近换�
   expect(wrappedP.x).toBeGreaterThanOrEqual(4) // 紧邻就近列，绝不生硬跳回 x: 0
 })
 
+test('拖动吸附以半格为判断点并在边界保留小幅迟滞', () => {
+  expect(snapGridCoordinate(0.49)).toBe(0)
+  expect(snapGridCoordinate(0.51)).toBe(1)
+  expect(snapGridCoordinate(0.57, 0)).toBe(0)
+  expect(snapGridCoordinate(0.59, 0)).toBe(1)
+  expect(snapGridCoordinate(0.43, 1)).toBe(1)
+  expect(snapGridCoordinate(0.41, 1)).toBe(0)
+  expect(snapGridCoordinate(2.1, 0)).toBe(2)
+})
+
+test('缺少小屏坐标时按大屏视觉顺序紧凑重排', () => {
+  const lower = newWidget('bookmark', 'lower')
+  lower.layouts.desktop = { x: 0, y: 2, w: 2, h: 1, pinned: true }
+  const upperRight = newWidget('bookmark', 'upper-right')
+  upperRight.layouts.desktop = { x: 2, y: 0, w: 2, h: 1, pinned: true }
+  const upperLeft = newWidget('bookmark', 'upper-left')
+  upperLeft.layouts.desktop = { x: 0, y: 0, w: 2, h: 1, pinned: true }
+
+  // 数据数组顺序被打乱时，手机布局仍按大屏从上到下、从左到右排列。
+  const mobile = arrangeNodes([lower, upperRight, upperLeft], 'mobile')
+  expect(mobile.get('upper-left')).toEqual({ x: 0, y: 0, w: 2, h: 1, pinned: true })
+  expect(mobile.get('upper-right')).toEqual({ x: 2, y: 0, w: 2, h: 1, pinned: true })
+  expect(mobile.get('lower')).toEqual({ x: 0, y: 1, w: 2, h: 1, pinned: true })
+})
+
+test('小屏显式固定坐标优先，其他组件围绕它有序流动', () => {
+  const first = newWidget('bookmark', 'first')
+  first.layouts.desktop = { x: 0, y: 0, w: 2, h: 1, pinned: true }
+  const second = newWidget('bookmark', 'second')
+  second.layouts.desktop = { x: 2, y: 0, w: 2, h: 1, pinned: true }
+  second.layouts.mobile = { x: 0, y: 0, w: 4, h: 1, pinned: true }
+
+  const mobile = arrangeNodes([first, second], 'mobile')
+  expect(mobile.get('second')).toEqual({ x: 0, y: 0, w: 4, h: 1, pinned: true })
+  expect(mobile.get('first')).toEqual({ x: 0, y: 1, w: 2, h: 1, pinned: true })
+})
+
 // 文件夹内书签移出落盘至桌面成为独立书签组件。
 test('文件夹内书签移出落盘至桌面生成独立书签组件并脱离分组', async () => {
   const { request, cookie } = await fixture()
@@ -357,4 +394,3 @@ test('文件夹之间严格独立：禁止不同文件夹绑定相同分组，�
   expect(updatedBm1.groupId).toBeNull()
   expect(updatedBm2.groupId).toBe(group2.id)
 })
-

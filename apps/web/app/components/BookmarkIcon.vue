@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 
 // 书签图标统一处理自定义地址、缓存与失败回退。
-const props = defineProps<{ title: string; iconUrl: string }>()
+const props = withDefaults(defineProps<{ title: string; iconUrl: string; siteUrl?: string }>(), { siteUrl: '' })
 
 // 获取全局明暗主题偏好。
 const { isDark } = useTheme()
 
-// 失败状态只存在于渲染器，不改写书签数据。
-const failed = ref(false)
+// 图标恢复复用站点级内存与持久化缓存，避免同页重复探测。
+const recoveredIcons = useState<Record<string, string>>('lh:site-favicons', () => ({}))
+const fetchingIcons = useState<Set<string>>('lh:fetching-site-favicons', () => new Set<string>())
+const retryAfter = useState<Record<string, number>>('lh:site-favicon-retry', () => ({}))
+const { fetchFavicon } = useBookmarks()
+const currentSource = ref('')
+const failedSources = new Set<string>()
 
 // 标记当前图标是否为深色透明图标。
 const isDarkIcon = ref(false)
@@ -19,20 +24,73 @@ function matchesDarkKeyword(val: string): boolean {
   return s.includes('github') || s.includes('apple') || s.includes('notion') || s.includes('vercel') || s.includes('steam') || s.includes('threads') || s.includes('nextjs') || s.includes('x.com')
 }
 
-// 监听地址变化重置失败与深色判定状态。
-watch(() => props.iconUrl, () => {
-  failed.value = false
+// 规范化允许渲染的本地或 HTTP 图片地址。
+function normalizeSource(value: string): string {
+  if (/^\/(?!\/)[^\\\s]+$/.test(value)) return value
+  try {
+    const url = new URL(value)
+    if (['http:', 'https:'].includes(url.protocol)) return url.href
+  } catch { /* 地址无效时继续使用文字回退。 */ }
+  return ''
+}
+
+// 当前书签站点根地址作为恢复缓存键。
+const siteOrigin = computed(() => {
+  try { return props.siteUrl ? new URL(props.siteUrl).origin : '' } catch { return '' }
+})
+
+// 原始图标优先，失败后切换到站点恢复缓存。
+const candidates = computed(() => [...new Set([
+  normalizeSource(props.iconUrl),
+  normalizeSource(recoveredIcons.value[siteOrigin.value] ?? ''),
+].filter(Boolean))])
+
+// 监听地址变化重置失败记录与深色判定状态。
+watch(() => [props.iconUrl, props.siteUrl], () => {
+  failedSources.clear()
+  currentSource.value = candidates.value[0] ?? ''
   isDarkIcon.value = matchesDarkKeyword(props.title + ' ' + props.iconUrl)
 }, { immediate: true })
+// 其他实例完成同站点探测后立即接入共享结果。
+watch(candidates, next => {
+  if (!currentSource.value) currentSource.value = next.find(url => !failedSources.has(url)) ?? ''
+})
 
-// 禁止脚本、协议相对路径与未经允许的资源协议。
-const source = computed(() => {
-  if (/^\/(?!\/)[^\\\s]+$/.test(props.iconUrl)) return props.iconUrl
+// 自动探测缺失图标，同一站点五分钟内只发起一次失败重试。
+async function recoverSource() {
+  const origin = siteOrigin.value
+  if (!origin || fetchingIcons.value.has(origin) || Date.now() < (retryAfter.value[origin] ?? 0)) return
+  fetchingIcons.value.add(origin)
+  retryAfter.value[origin] = Date.now() + 5 * 60_000
   try {
-    const url = new URL(props.iconUrl)
-    if (['http:', 'https:'].includes(url.protocol)) return url.href
-  } catch { /* 缺失图标使用本地回退。 */ }
-  return ''
+    const recovered = await fetchFavicon(origin)
+    if (!recovered) return
+    recoveredIcons.value[origin] = recovered
+    retryAfter.value[origin] = 0
+    currentSource.value = recovered
+    if (import.meta.client) window.localStorage.setItem('lh_site_favicons', JSON.stringify(recoveredIcons.value))
+  } catch {
+    // 网络不可用时保留首字回退，后续挂载按退避时间再试。
+  } finally {
+    fetchingIcons.value.delete(origin)
+  }
+}
+
+// 当前来源失败后尝试缓存中的下一来源，再触发服务端多源恢复。
+function handleImageError() {
+  if (currentSource.value) failedSources.add(currentSource.value)
+  currentSource.value = candidates.value.find(url => !failedSources.has(url)) ?? ''
+  if (!currentSource.value) void recoverSource()
+}
+
+// 首次挂载恢复持久化的站点图标，并为缺失图标启动后台探测。
+onMounted(() => {
+  try {
+    const stored = window.localStorage.getItem('lh_site_favicons')
+    if (stored) Object.assign(recoveredIcons.value, JSON.parse(stored))
+  } catch { /* 忽略损坏或不可用的本地缓存。 */ }
+  currentSource.value = candidates.value.find(url => !failedSources.has(url)) ?? ''
+  if (!currentSource.value) void recoverSource()
 })
 
 // 提取可见像素分析亮度以精准识别深色图标。
@@ -92,15 +150,14 @@ function handleImageLoad(event: Event) {
     :class="{ 'dark-contrast-plate': isDark && isDarkIcon }"
   >
     <img
-      v-if="source && !failed"
-      :src="source"
+      v-if="currentSource"
+      :src="currentSource"
       alt=""
       draggable="false"
       loading="lazy"
-      crossorigin="anonymous"
       referrerpolicy="no-referrer"
       @load="handleImageLoad"
-      @error="failed = true"
+      @error="handleImageError"
     >
     <span v-else class="bookmark-icon-fallback" aria-hidden="true">{{ (title.trim()[0] ?? '链').toUpperCase() }}</span>
   </span>

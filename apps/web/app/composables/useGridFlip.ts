@@ -6,18 +6,27 @@ export interface GridFlipOptions {
   easing?: string
 }
 
-// 记录元素屏幕边界快照与正在进行的动画。
-interface FlipRecord {
-  rect: DOMRect
-  cleanup?: () => void
-}
-
 // 使用标准 FLIP 技术为网格排布变动提供平滑的非线性位移动画。
 export function useGridFlip(container: Ref<HTMLElement | null>, options: GridFlipOptions = {}) {
   const duration = options.duration ?? 280
   const easing = options.easing ?? 'cubic-bezier(0.2, 0, 0.1, 1)'
   const snapshots = new Map<string, DOMRect>()
-  const activeRecords = new Map<string, FlipRecord>()
+  const activeAnimations = new Map<string, Animation>()
+
+  // 系统要求减少动态效果时跳过位移动画。
+  function prefersReducedMotion() {
+    return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  }
+
+  // 为节点登记唯一动画，结束或取消后释放记录。
+  function registerAnimation(id: string, animation: Animation) {
+    activeAnimations.set(id, animation)
+    const clear = () => {
+      if (activeAnimations.get(id) === animation) activeAnimations.delete(id)
+    }
+    animation.addEventListener('finish', clear, { once: true })
+    animation.addEventListener('cancel', clear, { once: true })
+  }
 
   // 记录排布变动前各静态组件的屏幕绝对坐标。
   function snapshot(ignoreId?: string) {
@@ -42,75 +51,32 @@ export function useGridFlip(container: Ref<HTMLElement | null>, options: GridFli
       const first = snapshots.get(id)
       if (!first) {
         // 新增元素执行平滑的缩放与淡入进场动画。
-        activeRecords.get(id)?.cleanup?.()
-        el.style.opacity = '0'
-        el.style.transform = 'scale(0.85)'
-        el.style.transition = 'none'
-        void el.offsetHeight
-        requestAnimationFrame(() => {
-          el.style.transition = `opacity ${duration}ms ease, transform ${duration}ms ${easing}`
-          el.style.opacity = ''
-          el.style.transform = ''
-          const onEnd = () => {
-            el.style.transition = ''
-            el.removeEventListener('transitionend', onEnd)
-            activeRecords.delete(id)
-          }
-          el.addEventListener('transitionend', onEnd)
-          activeRecords.set(id, {
-            rect: el.getBoundingClientRect(),
-            cleanup: () => {
-              el.removeEventListener('transitionend', onEnd)
-              el.style.transition = ''
-              el.style.opacity = ''
-              el.style.transform = ''
-            },
-          })
-        })
+        activeAnimations.get(id)?.cancel()
+        if (!prefersReducedMotion()) {
+          registerAnimation(id, el.animate(
+            [{ opacity: 0, transform: 'scale(0.92)' }, { opacity: 1, transform: 'scale(1)' }],
+            { duration, easing, fill: 'none' },
+          ))
+        }
         continue
       }
+      activeAnimations.get(id)?.cancel()
       const last = el.getBoundingClientRect()
       const dx = first.left - last.left
       const dy = first.top - last.top
-      if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue
-
-      // 清理该元素先前的动画回调。
-      activeRecords.get(id)?.cleanup?.()
-
-      // 逆向反转到位移发生前的起点。
-      el.style.transform = `translate(${dx}px, ${dy}px)`
-      el.style.transition = 'none'
-
-      // 强制触发回流确保逆向位移生效。
-      void el.offsetHeight
-
-      // 在下一帧启用平滑非线性缓动回正到新网格。
-      requestAnimationFrame(() => {
-        el.style.transition = `transform ${duration}ms ${easing}`
-        el.style.transform = ''
-        const onEnd = (event: TransitionEvent) => {
-          if (event.propertyName !== 'transform') return
-          el.style.transition = ''
-          el.removeEventListener('transitionend', onEnd)
-          activeRecords.delete(id)
-        }
-        el.addEventListener('transitionend', onEnd)
-        activeRecords.set(id, {
-          rect: last,
-          cleanup: () => {
-            el.removeEventListener('transitionend', onEnd)
-            el.style.transition = ''
-          },
-        })
-      })
+      if ((Math.abs(dx) < 1 && Math.abs(dy) < 1) || prefersReducedMotion()) continue
+      registerAnimation(id, el.animate(
+        [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'translate(0, 0)' }],
+        { duration, easing, fill: 'none' },
+      ))
     }
     snapshots.clear()
   }
 
   // 停止并清理所有正在进行的过渡。
   function reset() {
-    for (const record of activeRecords.values()) record.cleanup?.()
-    activeRecords.clear()
+    for (const animation of activeAnimations.values()) animation.cancel()
+    activeAnimations.clear()
     snapshots.clear()
   }
 

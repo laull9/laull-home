@@ -56,7 +56,7 @@ function getBookmarksForGroup(groupId: string): Bookmark[] {
             class="bookmark-link"
           >
             <div class="icon-box">
-              <BookmarkIcon :title="bm.title" :icon-url="bm.iconUrl" />
+              <BookmarkIcon :title="bm.title" :icon-url="bm.iconUrl" :site-url="bm.url" />
             </div>
             <span class="bookmark-title" :title="bm.title">{{ bm.title }}</span>
           </a>

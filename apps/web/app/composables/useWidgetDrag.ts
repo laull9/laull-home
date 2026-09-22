@@ -1,10 +1,14 @@
 import { ref, computed, onUnmounted, type Ref } from 'vue'
-import { arrangeNodes, BREAKPOINTS, type WidgetNode, type Breakpoint, type Placement } from '@laull-home/shared'
+import { arrangeNodes, BREAKPOINTS, snapGridCoordinate, type WidgetNode, type Breakpoint, type Placement } from '@laull-home/shared'
 
 // 拖动状态保留抓取偏移，组件跟随指针而不跳到左上角。
 interface DragSession {
   id: string; pointer: number; startX: number; startY: number; offsetX: number; offsetY: number
-  dx: number; dy: number; active: boolean; element: HTMLElement; originalTouchAction?: string
+  dx: number; dy: number; active: boolean; element: HTMLElement; pointerType: string
+}
+// 待处理指针坐标在动画帧内合并，避免高刷新率触控重复计算布局。
+interface PendingMove {
+  pointer: number; clientX: number; clientY: number
 }
 // 指针拖动与原生组件库拖放共用网格吸附算法。
 export function useWidgetDrag(options: {
@@ -21,11 +25,12 @@ export function useWidgetDrag(options: {
   const preview = ref<Placement | null>(null)
   const hoverFolderId = ref<string | null>(null)
   const folderAction = ref<'absorb' | 'displace' | null>(null)
+  const hoverTargetId = ref<string | null>(null)
   let suppressClick = false
   let edgeHoverTimer: ReturnType<typeof setTimeout> | undefined
   let edgeHoverTargetId: string | null = null
-
-  let displacedTargetId: string | null = null
+  let pendingMove: PendingMove | null = null
+  let moveFrame = 0
 
   // 清除边缘悬停计时器。
   function clearEdgeTimer() {
@@ -33,7 +38,15 @@ export function useWidgetDrag(options: {
     edgeHoverTargetId = null
   }
 
-  // 预览基于抓取点精确定位吸附网格矩形，增加迟滞死区消除交界抖动。
+  // 相同网格落点不重复触发响应式更新和避让动画。
+  function setPreview(next: Placement | null) {
+    const current = preview.value
+    if (current && next && current.x === next.x && current.y === next.y && current.w === next.w && current.h === next.h) return
+    if (!current && !next) return
+    preview.value = next
+  }
+
+  // 预览基于抓取点定位网格矩形，半格切换并保留很小的迟滞区。
   function placement(id: string, clientX: number, clientY: number, offsetX = 0, offsetY = 0): Placement | null {
     const grid = options.canvas.value
     const node = options.nodes().find(item => item.id === id)
@@ -46,13 +59,8 @@ export function useWidgetDrag(options: {
     const old = arrangeNodes(options.nodes(), options.breakpoint.value).get(id)!
     const rawX = (clientX - bounds.left - offsetX) / (cell + gap)
     const rawY = (clientY - bounds.top - offsetY) / (96 + rowGap)
-    let newX = Math.round(rawX)
-    let newY = Math.round(rawY)
-    // 迟滞死区：当微小晃动未超过 0.55 格时锁定当前预览，杜绝边界震荡跳动。
-    if (preview.value) {
-      if (Math.abs(rawX - preview.value.x) <= 0.55) newX = preview.value.x
-      if (Math.abs(rawY - preview.value.y) <= 0.55) newY = preview.value.y
-    }
+    const newX = snapGridCoordinate(rawX, preview.value?.x)
+    const newY = snapGridCoordinate(rawY, preview.value?.y)
     return {
       ...old,
       x: Math.max(0, Math.min(columns - old.w, newX)),
@@ -63,36 +71,30 @@ export function useWidgetDrag(options: {
 
   // 只有超过阈值的移动才成为拖动，轻点继续执行原有点击。
   function start(event: PointerEvent, node: WidgetNode) {
-    if (!options.enabled(node) || event.button !== 0 || session.value) return
+    if (!options.enabled(node) || (event.pointerType === 'mouse' && event.button !== 0) || !event.isPrimary || session.value) return
     suppressClick = false
     clearEdgeTimer()
     hoverFolderId.value = null
     folderAction.value = null
-    displacedTargetId = null
+    hoverTargetId.value = null
     const target = event.target as HTMLElement
     if (target.closest('input,textarea,select,[contenteditable],.widget-tools,.stack-controls,[data-folder-item]')) return
     const element = event.currentTarget as HTMLElement
-    const originalTouchAction = element.style.touchAction
-    element.style.touchAction = 'none'
     const bounds = element.getBoundingClientRect()
     session.value = { id: node.id, pointer: event.pointerId, startX: event.clientX, startY: event.clientY,
-      offsetX: event.clientX - bounds.left, offsetY: event.clientY - bounds.top, dx: 0, dy: 0, active: false, element, originalTouchAction }
+      offsetX: event.clientX - bounds.left, offsetY: event.clientY - bounds.top, dx: 0, dy: 0, active: false, element, pointerType: event.pointerType }
     document.addEventListener('pointermove', move, { passive: false })
     document.addEventListener('pointerup', end)
     document.addEventListener('pointercancel', cancel)
     document.addEventListener('keydown', escape)
   }
 
-  // 跟随指针移动，处理边缘悬停 1 秒规则并更新网格落点。
-  function move(event: PointerEvent) {
+  // 在单个动画帧内计算最新落点、目标动作和自动滚动。
+  function processMove(next: PendingMove) {
     const current = session.value
-    if (!current || event.pointerId !== current.pointer) return
-    current.dx = event.clientX - current.startX
-    current.dy = event.clientY - current.startY
-    if (!current.active && Math.hypot(current.dx, current.dy) < 6) return
-    current.active = true
-    if (!current.element.hasPointerCapture(event.pointerId)) current.element.setPointerCapture(event.pointerId)
-    event.preventDefault()
+    if (!current || next.pointer !== current.pointer) return
+    current.dx = next.clientX - current.startX
+    current.dy = next.clientY - current.startY
 
     const grid = options.canvas.value
     if (!grid) return
@@ -102,18 +104,23 @@ export function useWidgetDrag(options: {
     const rowGap = parseFloat(getComputedStyle(grid).rowGap) || 0
     const cell = (bounds.width - gap * (columns - 1)) / columns
 
-    // 计算当前指针在网格中的基准逻辑单元格。
-    const pointerCellX = Math.max(0, Math.min(columns - 1, Math.floor((event.clientX - bounds.left) / (cell + gap))))
-    const pointerCellY = Math.max(0, Math.floor((event.clientY - bounds.top) / (96 + rowGap)))
-
-    // 查找当前指针所在的基准静态组件（不受动画位移影响）。
+    // 以拖动组件的投影中心判断挤占目标，抓住边角时也符合视觉重心。
     const staticMap = arrangeNodes(options.nodes(), options.breakpoint.value)
+    const sourcePlacement = staticMap.get(current.id)
+    const sourceWidth = sourcePlacement ? sourcePlacement.w * cell + (sourcePlacement.w - 1) * gap : cell
+    const sourceHeight = sourcePlacement ? sourcePlacement.h * 96 + (sourcePlacement.h - 1) * rowGap : 96
+    const focusX = next.clientX - current.offsetX + sourceWidth / 2
+    const focusY = next.clientY - current.offsetY + sourceHeight / 2
+    const focusCellX = Math.max(0, Math.min(columns - 1, Math.floor((focusX - bounds.left) / (cell + gap))))
+    const focusCellY = Math.max(0, Math.floor((focusY - bounds.top) / (96 + rowGap)))
+
+    // 查找投影中心覆盖的静态组件，避免被正在播放的位移动画干扰。
     let targetNode: WidgetNode | null = null
     let targetPlacement: Placement | null = null
     for (const node of options.nodes()) {
       if (node.id === current.id) continue
       const p = staticMap.get(node.id)
-      if (p && pointerCellX >= p.x && pointerCellX < p.x + p.w && pointerCellY >= p.y && pointerCellY < p.y + p.h) {
+      if (p && focusCellX >= p.x && focusCellX < p.x + p.w && focusCellY >= p.y && focusCellY < p.y + p.h) {
         targetNode = node
         targetPlacement = p
         break
@@ -123,101 +130,110 @@ export function useWidgetDrag(options: {
     const sourceNode = options.nodes().find(n => n.id === current.id)
     const targetId = targetNode?.id
     const delay = options.hoverDelay ?? 500
+    const nextPlacement = placement(current.id, next.clientX, next.clientY, current.offsetX, current.offsetY)
 
-    // 当指针落在其他已有组件基准区域时，执行边缘悬停 0.5 秒才挤开的通用规则。
+    // 可接收组件的中心区域执行合并或叠放，边缘区域保留普通挤占。
     if (targetNode && targetPlacement) {
       const isFolderAbsorb = sourceNode?.type === 'bookmark' && targetNode.type === 'folder'
+      const acceptsAction = options.acceptsTarget(current.id, targetNode.id)
       const left = bounds.left + targetPlacement.x * (cell + gap)
       const top = bounds.top + targetPlacement.y * (96 + rowGap)
       const width = targetPlacement.w * cell + (targetPlacement.w - 1) * gap
       const height = targetPlacement.h * 96 + (targetPlacement.h - 1) * rowGap
       const edge = Math.min(options.edgeThreshold ?? 24, width * 0.22, height * 0.22)
       const isNearEdge = (
-        event.clientX < left + edge || event.clientX > left + width - edge ||
-        event.clientY < top + edge || event.clientY > top + height - edge
+        focusX < left + edge || focusX > left + width - edge ||
+        focusY < top + edge || focusY > top + height - edge
       )
 
       if (isFolderAbsorb) {
         if (!isNearEdge) {
           clearEdgeTimer()
           hoverFolderId.value = targetId!
+          hoverTargetId.value = targetId!
           folderAction.value = 'absorb'
-          preview.value = null
+          setPreview(null)
         } else if (folderAction.value !== 'displace') {
           hoverFolderId.value = targetId!
+          hoverTargetId.value = targetId!
           folderAction.value = 'absorb'
-          preview.value = null
+          setPreview(null)
           if (edgeHoverTargetId !== targetId) {
             clearEdgeTimer()
             edgeHoverTargetId = targetId!
             edgeHoverTimer = setTimeout(() => {
               folderAction.value = 'displace'
               hoverFolderId.value = null
+              hoverTargetId.value = null
               const cur = session.value
-              if (cur) preview.value = placement(cur.id, cur.startX + cur.dx, cur.startY + cur.dy, cur.offsetX, cur.offsetY)
+              if (cur) setPreview(placement(cur.id, cur.startX + cur.dx, cur.startY + cur.dy, cur.offsetX, cur.offsetY))
             }, delay)
           }
         } else {
-          preview.value = placement(current.id, event.clientX, event.clientY, current.offsetX, current.offsetY)
+          setPreview(nextPlacement)
         }
-      } else {
+      } else if (acceptsAction && !isNearEdge) {
+        clearEdgeTimer()
         hoverFolderId.value = null
+        hoverTargetId.value = targetId!
         folderAction.value = null
-        if (displacedTargetId === targetId) {
-          // 已经处于避让状态：稳定保持避让落点，杜绝由于被挤开而撤销产生的反复抖动。
-          preview.value = placement(current.id, event.clientX, event.clientY, current.offsetX, current.offsetY)
-        } else if (isNearEdge) {
-          // 刚停留在边缘区域：启动 0.5 秒计时器。
-          preview.value = null
-          if (edgeHoverTargetId !== targetId) {
-            clearEdgeTimer()
-            edgeHoverTargetId = targetId!
-            edgeHoverTimer = setTimeout(() => {
-              displacedTargetId = targetId!
-              const cur = session.value
-              if (cur) preview.value = placement(cur.id, cur.startX + cur.dx, cur.startY + cur.dy, cur.offsetX, cur.offsetY)
-            }, delay)
-          }
-        } else {
-          // 在卡片中心且未避让：不触发挤走。
-          clearEdgeTimer()
-          preview.value = null
-        }
+        setPreview(null)
+      } else {
+        clearEdgeTimer()
+        hoverFolderId.value = null
+        hoverTargetId.value = null
+        folderAction.value = null
+        setPreview(nextPlacement)
       }
     } else {
       clearEdgeTimer()
       hoverFolderId.value = null
+      hoverTargetId.value = null
       folderAction.value = null
-      displacedTargetId = null
-      const nextPreview = placement(current.id, event.clientX, event.clientY, current.offsetX, current.offsetY)
-      if (!preview.value || !nextPreview || preview.value.x !== nextPreview.x || preview.value.y !== nextPreview.y || preview.value.w !== nextPreview.w || preview.value.h !== nextPreview.h) {
-        preview.value = nextPreview
-      }
+      setPreview(nextPlacement)
     }
 
-    if (event.clientY > window.innerHeight - 60) window.scrollBy(0, 12)
-    else if (event.clientY < 60) window.scrollBy(0, -12)
+    if (next.clientY > window.innerHeight - 60) window.scrollBy(0, 12)
+    else if (next.clientY < 60) window.scrollBy(0, -12)
+  }
+
+  // 跟随指针移动，触控使用更宽松阈值并把高频事件合并到下一帧。
+  function move(event: PointerEvent) {
+    const current = session.value
+    if (!current || event.pointerId !== current.pointer) return
+    const dx = event.clientX - current.startX
+    const dy = event.clientY - current.startY
+    const threshold = current.pointerType === 'touch' ? 10 : 5
+    if (!current.active && Math.hypot(dx, dy) < threshold) return
+    current.active = true
+    if (!current.element.hasPointerCapture(event.pointerId)) current.element.setPointerCapture(event.pointerId)
+    event.preventDefault()
+    pendingMove = { pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY }
+    if (!moveFrame) {
+      moveFrame = requestAnimationFrame(() => {
+        moveFrame = 0
+        const next = pendingMove
+        pendingMove = null
+        if (next) processMove(next)
+      })
+    }
   }
 
   // 松开后应用预览坐标，并屏蔽紧随拖动产生的点击。
   function end(event: PointerEvent) {
     const current = session.value
     if (!current || event.pointerId !== current.pointer) return
-    const targetFolder = hoverFolderId.value
-    const action = folderAction.value
+    if (moveFrame) { cancelAnimationFrame(moveFrame); moveFrame = 0 }
+    if (pendingMove) { const next = pendingMove; pendingMove = null; processMove(next) }
+    const targetId = hoverTargetId.value
     clearEdgeTimer()
     if (current.active) {
       suppressClick = true
-      if (targetFolder && action === 'absorb') {
-        options.commit(current.id, preview.value ?? placement(current.id, event.clientX, event.clientY, current.offsetX, current.offsetY)!, targetFolder)
+      if (targetId) {
+        options.commit(current.id, preview.value ?? placement(current.id, event.clientX, event.clientY, current.offsetX, current.offsetY)!, targetId)
       } else {
         const p = preview.value ?? placement(current.id, event.clientX, event.clientY, current.offsetX, current.offsetY)
-        if (p) {
-          const targetEl = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-widget-id]')
-          const targetId = targetEl?.dataset.widgetId
-          const validTarget = targetId && targetId !== current.id && options.acceptsTarget(current.id, targetId) ? targetId : undefined
-          options.commit(current.id, p, validTarget)
-        }
+        if (p) options.commit(current.id, p)
       }
     }
     cancel()
@@ -226,21 +242,18 @@ export function useWidgetDrag(options: {
   // 取消拖动不会修改草稿。
   function cancel() {
     clearEdgeTimer()
+    if (moveFrame) { cancelAnimationFrame(moveFrame); moveFrame = 0 }
+    pendingMove = null
     const current = session.value
     if (current?.active) suppressClick = true
     if (current?.element) {
-      if (current.originalTouchAction) {
-        current.element.style.touchAction = current.originalTouchAction
-      } else {
-        current.element.style.removeProperty('touch-action')
-      }
       if (current.element.hasPointerCapture(current.pointer)) current.element.releasePointerCapture(current.pointer)
     }
     session.value = null
     preview.value = null
     hoverFolderId.value = null
+    hoverTargetId.value = null
     folderAction.value = null
-    displacedTargetId = null
     document.removeEventListener('pointermove', move)
     document.removeEventListener('pointerup', end)
     document.removeEventListener('pointercancel', cancel)
@@ -258,11 +271,11 @@ export function useWidgetDrag(options: {
   const vector = computed(() => session.value?.active ? { dx: session.value.dx, dy: session.value.dy } : undefined)
   // 当前处于激活拖动状态的组件标识。
   const draggingId = computed(() => session.value?.active ? session.value.id : null)
-  // 位移不参与网格布局。
+  // 位移只交给合成层处理，不参与网格回流。
   function transform(id: string) {
     const current = session.value
-    return current?.active && current.id === id ? { transform: 'translate(' + current.dx + 'px,' + current.dy + 'px)', zIndex: 80 } : {}
+    return current?.active && current.id === id ? { transform: 'translate3d(' + current.dx + 'px,' + current.dy + 'px,0)', zIndex: 80 } : {}
   }
   onUnmounted(cancel)
-  return { start, cancel, click, transform, placement, preview, draggingId, hoverFolderId, folderAction, vector }
+  return { start, cancel, click, transform, placement, preview, draggingId, hoverFolderId, hoverTargetId, folderAction, vector }
 }

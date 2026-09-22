@@ -46,7 +46,7 @@ async function handleFetchNewIcon() {
   isFetchingNewIcon.value = true
   errorMessage.value = ""
   try {
-    const iconUrl = await fetchFavicon(origin)
+    const iconUrl = await fetchFavicon(origin, true)
     if (iconUrl) {
       iconCache.value[origin] = `${iconUrl}?t=${Date.now()}`
       if (import.meta.client) {
@@ -76,7 +76,7 @@ async function handleRefreshEngineIcon(engine: SearchEngine) {
   errorMessage.value = ""
   successMessage.value = ""
   try {
-    const iconUrl = await fetchFavicon(origin)
+    const iconUrl = await fetchFavicon(origin, true)
     if (iconUrl) {
       iconCache.value[origin] = `${iconUrl}?t=${Date.now()}`
       if (import.meta.client) {

@@ -151,6 +151,7 @@ async function handleContextAction(id: string) {
           :key="item.id"
           :title="item.title"
           :icon-url="item.iconUrl"
+          :site-url="item.url"
           class="compact-icon"
         />
       </div>
@@ -192,7 +193,7 @@ async function handleContextAction(id: string) {
           @click.stop="handleItemClick($event, item)"
           @contextmenu.prevent.stop="handleBookmarkContextMenu($event, item)"
         >
-          <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="shelf-icon" />
+          <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" :site-url="item.url" class="shelf-icon" />
           <span class="shelf-label">{{ item.title }}</span>
         </a>
       </div>
@@ -228,7 +229,7 @@ async function handleContextAction(id: string) {
           @click.stop="handleItemClick($event, item)"
           @contextmenu.prevent.stop="handleBookmarkContextMenu($event, item)"
         >
-          <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="folder-icon" />
+          <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" :site-url="item.url" class="folder-icon" />
           <span class="folder-label">{{ item.title }}</span>
         </a>
       </div>
@@ -266,7 +267,7 @@ async function handleContextAction(id: string) {
             @click.stop="handleItemClick($event, item)"
             @contextmenu.prevent.stop="handleBookmarkContextMenu($event, item)"
           >
-            <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="drawer-icon" />
+            <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" :site-url="item.url" class="drawer-icon" />
             <span class="drawer-label">{{ item.title }}</span>
           </a>
         </div>

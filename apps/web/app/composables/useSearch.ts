@@ -20,6 +20,7 @@ export function useSearch() {
     if (cached && Array.isArray(cached) && cached.length > 0) {
       engines.value = cached
     } else {
+      engines.value = []
       loading.value = true
     }
 

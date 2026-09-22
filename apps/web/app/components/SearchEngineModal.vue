@@ -133,7 +133,7 @@ async function handleManualFetchIcon() {
   fetchFailed.value = false
 
   try {
-    const iconUrl = await fetchFavicon(origin)
+    const iconUrl = await fetchFavicon(origin, true)
     if (iconUrl) {
       const refreshedUrl = `${iconUrl}?t=${Date.now()}`
       iconCache.value[origin] = refreshedUrl

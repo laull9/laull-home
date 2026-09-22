@@ -116,6 +116,9 @@ export function clearAllLocalCaches(): void {
     for (const k of keysToRemove) {
       window.localStorage.removeItem(k)
     }
+    window.localStorage.removeItem('lh_engine_favicons')
+    window.localStorage.removeItem('lh_site_favicons')
+    navigator.serviceWorker?.controller?.postMessage({ type: 'CLEAR_USER_CACHES' })
   } catch {
     // 忽略清理异常
   }
