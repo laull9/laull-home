@@ -37,6 +37,8 @@ export function useBookmarks() {
     }
 
     if (!hasLocalSnapshot) {
+      groups.value = []
+      bookmarks.value = []
       loading.value = true
     }
 
@@ -139,7 +141,7 @@ export function useBookmarks() {
   }
 
   // 探测站点 Favicon 图标并缓存：优先使用 Favicon.im，并在客户端环境嗅探下载与自动上传保存。
-  async function fetchFavicon(targetUrl: string): Promise<string> {
+  async function fetchFavicon(targetUrl: string, forceRefresh = false): Promise<string> {
     if (!targetUrl) return ""
     let origin = ""
     let hostname = ""
@@ -177,7 +179,7 @@ export function useBookmarks() {
 
     // 2. 向服务端请求解析 HTML 页面声明的候选地址或读取已有缓存
     try {
-      const res = await $api.favicon.fetch.post({ url: targetUrl })
+      const res = await $api.favicon.fetch.post({ url: targetUrl, forceRefresh })
       if (res.data?.iconUrl) {
         return res.data.iconUrl
       }

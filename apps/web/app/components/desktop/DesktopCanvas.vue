@@ -237,9 +237,13 @@ async function commitDrop(id: string, p: Placement, targetId?: string) {
   }
   if (!props.editing) void save()
 }
+// 编辑模式允许拖动全部组件，常态只开放书签和文件夹。
+function canDrag(node?: WidgetNode) {
+  return !saving.value && (props.editing || (props.allowDragWithoutEdit && (node?.type === 'bookmark' || node?.type === 'folder')))
+}
 // 整个组件在编辑模式或允许的非编辑模式下响应鼠标和触屏拖动。
 const drag = useWidgetDrag({ canvas, nodes: () => data.value?.nodes ?? [], breakpoint,
-  enabled: node => !saving.value && (props.editing || (props.allowDragWithoutEdit && (node?.type === 'bookmark' || node?.type === 'folder'))),
+  enabled: canDrag,
   acceptsTarget: (sourceId, targetId) => {
     const source = data.value?.nodes.find(node => node.id === sourceId)
     const target = data.value?.nodes.find(node => node.id === targetId)
@@ -258,11 +262,21 @@ const previewPositions = computed(() => {
   return arrangeNodes([activeWithPreview, ...all.filter(n => n.id !== drag.draggingId.value)], breakpoint.value, drag.vector.value)
 })
 // 拖拽避让变动时触发平滑非线性动画。
-const { snapshot: snapshotGrid, play: playGridFlip } = useGridFlip(canvas)
+const { snapshot: snapshotGrid, play: playGridFlip } = useGridFlip(canvas, {
+  duration: 160,
+  easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+})
 watch(previewPositions, async () => {
   if (!drag.draggingId.value) return
   snapshotGrid(drag.draggingId.value)
   await playGridFlip(drag.draggingId.value)
+}, { flush: 'pre' })
+// 跨断点时取消旧手势，并用同一套 FLIP 动画衔接响应式重排。
+watch(breakpoint, async (next, previous) => {
+  if (next === previous) return
+  drag.cancel()
+  snapshotGrid()
+  await playGridFlip()
 }, { flush: 'pre' })
 // 判断组件是否脱离卡片底座。
 function isFrameless(node: WidgetNode) {
@@ -400,7 +414,9 @@ onUnmounted(() => {
         :class="{
           'search-widget': entry.node.type === 'search',
           'frameless-widget': isFrameless(entry.node),
+          'draggable-widget': canDrag(entry.node),
           'dragging-widget': drag.draggingId.value === entry.node.id,
+          'drop-action-target': drag.hoverTargetId.value === entry.node.id,
           'folder-absorb-target': drag.hoverFolderId.value === entry.node.id || nativeHoverFolderId === entry.node.id,
         }"
         :style="style(entry.node)"
@@ -430,44 +446,14 @@ onUnmounted(() => {
 
 <style scoped>
 .desktop { position: relative; width: 100%; }
-.canvas-banner {
-  position: absolute;
-  top: -36px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 10;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 12px;
-  border-radius: var(--lh-radius-full, 9999px);
-  font-size: 12px;
-  box-shadow: var(--lh-shadow-dropdown);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  white-space: nowrap;
-}
-.canvas-error {
-  background: color-mix(in srgb, var(--lh-danger, #ef4444) 12%, var(--lh-surface, #fff));
-  border: 1px solid var(--lh-danger, #ef4444);
-  color: var(--lh-danger, #ef4444);
-}
-.canvas-error button {
-  background: var(--lh-danger, #ef4444);
-  color: #fff;
-  border: none;
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 11px;
-  cursor: pointer;
-}
-.canvas-loading {
-  background: color-mix(in srgb, var(--lh-surface, #fff) 85%, transparent);
-  border: 1px solid var(--lh-border);
-  color: var(--lh-text-secondary);
-}
+.canvas-banner { position: absolute; top: -36px; left: 50%; transform: translateX(-50%); z-index: 10; display: flex; align-items: center; gap: 8px; padding: 4px 12px; border-radius: var(--lh-radius-full, 9999px); font-size: 12px; box-shadow: var(--lh-shadow-dropdown); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); white-space: nowrap; }
+.canvas-error { background: color-mix(in srgb, var(--lh-danger, #ef4444) 12%, var(--lh-surface, #fff)); border: 1px solid var(--lh-danger, #ef4444); color: var(--lh-danger, #ef4444); }
+.canvas-error button { background: var(--lh-danger, #ef4444); color: #fff; border: none; border-radius: 4px; padding: 2px 8px; font-size: 11px; cursor: pointer; }
+.canvas-loading { background: color-mix(in srgb, var(--lh-surface, #fff) 85%, transparent); border: 1px solid var(--lh-border); color: var(--lh-text-secondary); }
 .desktop-grid { position: relative; display: grid; grid-template-columns: repeat(var(--columns), minmax(0, 1fr)); grid-auto-rows: 96px; gap: var(--lh-grid-gap, 16px); min-height: 220px; width: 100%; }
 .widget { position: relative; min-width: 0; container-type: inline-size; padding: var(--widget-padding, 12px); border: var(--widget-border, 1px) solid var(--lh-border); border-radius: var(--widget-radius, var(--lh-radius-lg)); background: color-mix(in srgb, var(--widget-surface, var(--lh-surface-solid, white)) var(--widget-opacity, var(--lh-surface-opacity, 92%)), transparent); color: var(--widget-text, var(--lh-text)); backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); -webkit-backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-card); transition: box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, color 0.2s, border-radius 0.2s; }
+.draggable-widget { cursor: grab; touch-action: none; -webkit-user-drag: none; }
+.drop-action-target { outline: 2px solid var(--lh-accent); outline-offset: 2px; transform: scale(.985); transition: transform .12s ease-out, box-shadow .12s ease-out; }
 .folder-absorb-target { outline: 2px solid var(--lh-accent) !important; box-shadow: 0 0 14px color-mix(in srgb, var(--lh-accent) 45%, transparent) !important; }
 :root[data-theme="modern"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover { transform: translateY(-2px); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-hover); transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
 :root[data-theme="pixel"] .widget { backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
@@ -481,10 +467,11 @@ onUnmounted(() => {
 .editing .widget { cursor: grab; touch-action: none; user-select: none; }
 .editing .widget input, .editing .widget textarea { cursor: text; touch-action: auto; user-select: text; }
 .widget:hover .widget-tools, .widget:focus-within .widget-tools { opacity: 1; }
-.dragging-widget { pointer-events: none; cursor: grabbing; opacity: .88; box-shadow: var(--lh-shadow-dropdown); transition: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; will-change: transform; }
+.dragging-widget { pointer-events: none; cursor: grabbing; opacity: .94; box-shadow: var(--lh-shadow-dropdown); transition: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; will-change: transform; }
 .drop-preview { z-index: 0; pointer-events: none; border: 2px solid var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 12%, transparent); border-radius: var(--lh-radius-lg); }
 .is-dragging::before { content: ''; position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(circle, var(--lh-border-hover) 1px, transparent 1px); background-size: calc((100% + var(--lh-grid-gap, 16px)) / var(--columns)) 112px; }
 @media (hover: none) { .widget-tools { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .drop-action-target { transform: none; transition: none; } }
 .empty-state { text-align: center; padding: 48px 0; }
 .stack-controls { position: absolute; bottom: 3px; right: 6px; display: flex; align-items: center; gap: 5px; font-size: 10px; background: var(--lh-surface); border-radius: 8px; }
 .stack-controls button { padding: 2px 7px; min-height: 24px; }

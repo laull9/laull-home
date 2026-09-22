@@ -130,7 +130,7 @@ html.dark {
 }
 
 html {
-  scrollbar-gutter: stable;
+  scrollbar-gutter: auto;
 }
 
 body {
@@ -144,6 +144,7 @@ body {
 
 .app-root {
   min-height: 100vh;
+  min-height: 100dvh;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
@@ -162,8 +163,8 @@ body {
 }
 
 /* 壁纸、暗化和设置页主题遮罩依次叠放，主页保留壁纸原貌不设额外遮罩。 */
-.wallpaper-layer, .wallpaper-shade, .wallpaper-tint { position: fixed; inset: 0; pointer-events: none; }
-.wallpaper-layer { z-index: -3; }
+.wallpaper-layer, .wallpaper-shade, .wallpaper-tint { position: fixed; inset: 0; width: 100%; height: 100%; min-height: 100dvh; pointer-events: none; }
+.wallpaper-layer { z-index: -3; transform: translateZ(0); backface-visibility: hidden; }
 .wallpaper-shade { z-index: -2; }
 .wallpaper-tint { z-index: -1; background: var(--lh-bg); opacity: .96; }
 .wallpaper-layer { filter: blur(var(--lh-wallpaper-blur, 0px)); }

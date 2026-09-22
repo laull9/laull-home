@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { lookup } from "node:dns/promises"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import { extname, join, resolve } from "node:path"
 
 // 图标服务操作异常类。
@@ -142,6 +142,29 @@ export function detectIconFormat(buffer: Buffer): { ext: string; mime: string } 
 export function createFaviconService(dataDir: string) {
   const iconsDir = resolve(dataDir, "icons")
   if (!existsSync(iconsDir)) mkdirSync(iconsDir, { recursive: true })
+  const iconExtensions = new Set([".png", ".ico", ".svg", ".webp", ".jpg", ".jpeg", ".gif"])
+  const inFlight = new Map<string, Promise<{ iconUrl: string; candidateUrls?: string[]; svgUrl?: string }>>()
+  const failedAt = new Map<string, number>()
+
+  // 查找域名最近写入的缓存，兼容旧版按域名哈希命名的文件。
+  function findCachedIcon(domainHash: string): string {
+    const names = readdirSync(iconsDir).filter((name) => {
+      const ext = extname(name).toLowerCase()
+      return iconExtensions.has(ext) && (name.startsWith(domainHash + "-") || name.startsWith(domainHash + "."))
+    })
+    names.sort((a, b) => statSync(join(iconsDir, b)).mtimeMs - statSync(join(iconsDir, a)).mtimeMs)
+    return names[0] ?? ""
+  }
+
+  // 以域名和内容双哈希写入不可变文件，刷新后获得新地址且旧书签仍可访问。
+  function saveFetchedIcon(domainHash: string, buffer: Buffer): string {
+    const { ext } = detectIconFormat(buffer)
+    const contentHash = createHash("sha256").update(buffer).digest("hex").slice(0, 12)
+    const filename = `${domainHash}-${contentHash}.${ext}`
+    const filePath = join(iconsDir, filename)
+    if (!existsSync(filePath)) writeFileSync(filePath, buffer)
+    return filename
+  }
 
   // 安全请求远程资源并限制体积、重定向与超时时间。
   async function fetchWithSafeLimits(targetUrl: string, maxRedirects = 3, timeoutMs = 5000): Promise<{ buffer: Buffer, contentType: string }> {
@@ -230,6 +253,73 @@ export function createFaviconService(dataDir: string) {
     return candidates
   }
 
+  // 并发探测一组候选，首个通过格式校验的图片立即返回。
+  function fetchFirstIcon(candidates: string[], timeoutMs: number): Promise<Buffer | null> {
+    if (candidates.length === 0) return Promise.resolve(null)
+    return new Promise((resolveFirst) => {
+      let pending = candidates.length
+      let settled = false
+      for (const candidate of candidates) {
+        void fetchWithSafeLimits(candidate, 2, timeoutMs).then(({ buffer }) => {
+          detectIconFormat(buffer)
+          if (!settled) {
+            settled = true
+            resolveFirst(buffer)
+          }
+        }).catch(() => {
+          // 单个候选失败不影响同批其他来源。
+        }).finally(() => {
+          pending--
+          if (!pending && !settled) resolveFirst(null)
+        })
+      }
+    })
+  }
+
+  // 探测站点声明、常见根路径与公共镜像，并将结果持久化到本地。
+  async function performFetch(safeUrl: URL, domainHash: string, forceRefresh: boolean) {
+    const domain = safeUrl.hostname.toLowerCase()
+    const cached = findCachedIcon(domainHash)
+    if (cached && !forceRefresh) return { iconUrl: "/api/v1/icons/" + cached }
+    if (!forceRefresh && Date.now() - (failedAt.get(domain) ?? 0) < 5 * 60_000) {
+      return { iconUrl: cached ? "/api/v1/icons/" + cached : "" }
+    }
+
+    const directCandidates: string[] = []
+    try {
+      const pageResult = await fetchWithSafeLimits(safeUrl.toString(), 2, 2200)
+      if (pageResult.contentType.includes("text/html")) {
+        directCandidates.push(...extractIconsFromHtml(pageResult.buffer.toString("utf-8"), safeUrl.toString()))
+      }
+    } catch {
+      // 页面本身不可达时继续尝试标准路径和公共镜像。
+    }
+    for (const path of ["/favicon.ico", "/favicon.svg", "/favicon.png", "/apple-touch-icon.png"]) {
+      directCandidates.push(new URL(path, safeUrl.origin).toString())
+    }
+
+    const publicCandidates = [
+      `https://favicon.im/${domain}?larger=true`,
+      `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`,
+      `https://icon.horse/icon/${domain}`,
+      `https://unavatar.io/${domain}`,
+    ]
+    if (domain.startsWith("www.")) publicCandidates.push(`https://favicon.im/${domain.slice(4)}?larger=true`)
+    const candidateUrls = [...new Set([...directCandidates, ...publicCandidates])]
+
+    const directBuffer = await fetchFirstIcon([...new Set(directCandidates)].slice(0, 8), 2200)
+    const fallbackBuffer = directBuffer ?? await fetchFirstIcon(publicCandidates, 3000)
+    if (fallbackBuffer) {
+      failedAt.delete(domain)
+      const filename = saveFetchedIcon(domainHash, fallbackBuffer)
+      return { iconUrl: "/api/v1/icons/" + filename, candidateUrls }
+    }
+
+    failedAt.set(domain, Date.now())
+    const svgUrl = candidateUrls.find(url => /\.svg(?:$|\?)/i.test(url))
+    return { iconUrl: cached ? "/api/v1/icons/" + cached : "", candidateUrls, svgUrl }
+  }
+
   return {
     // 读取本地缓存的图标文件。
     getIcon(filename: string): { buffer: Buffer, contentType: string } | null {
@@ -244,6 +334,7 @@ export function createFaviconService(dataDir: string) {
       else if (ext === ".svg") contentType = "image/svg+xml"
       else if (ext === ".webp") contentType = "image/webp"
       else if (ext === ".jpg" || ext === ".jpeg") contentType = "image/jpeg"
+      else if (ext === ".gif") contentType = "image/gif"
 
       return { buffer: readFileSync(filePath), contentType }
     },
@@ -261,92 +352,21 @@ export function createFaviconService(dataDir: string) {
       return { iconUrl: "/api/v1/icons/" + filename }
     },
 
-    // 探测站点图标候选地址或返回已有本地缓存，优先使用 Favicon.im 获取与缓存。
+    // 探测站点图标或返回已有缓存，同域并发请求复用同一任务。
     async fetchAndCache(siteUrl: string, forceRefresh = false): Promise<{ iconUrl: string; candidateUrls?: string[]; svgUrl?: string }> {
       const { url: safeUrl } = await assertSafeOutboundUrl(siteUrl)
-      const domain = safeUrl.hostname
-      const urlHash = createHash("sha256").update(domain).digest("hex").slice(0, 16)
-
-      // 1. 检查是否已有真实图标缓存（非强制刷新时直接复用）
+      const domain = safeUrl.hostname.toLowerCase()
+      const domainHash = createHash("sha256").update(domain).digest("hex").slice(0, 16)
       if (!forceRefresh) {
-        for (const ext of [".png", ".ico", ".svg", ".webp", ".jpg"]) {
-          const candidateName = urlHash + ext
-          if (existsSync(join(iconsDir, candidateName))) {
-            return { iconUrl: "/api/v1/icons/" + candidateName }
-          }
-        }
+        const running = inFlight.get(domain)
+        if (running) return running
       }
-
-      const candidateUrls: string[] = []
-      const isPublic = !isPrivateIp(domain)
-
-      // 2. 公网域名优先追加 Favicon.im 高清候选地址
-      if (isPublic) {
-        candidateUrls.push(`https://favicon.im/${domain}?larger=true`)
-        candidateUrls.push(`https://favicon.im/${domain}`)
-        if (domain.startsWith("www.")) {
-          candidateUrls.push(`https://favicon.im/${domain.slice(4)}?larger=true`)
-        }
-      }
-
-      // 3. 服务端若网络通畅，优先尝试通过 Favicon.im 拉取并缓存
-      if (isPublic) {
-        try {
-          const faviconImUrl = `https://favicon.im/${domain}?larger=true`
-          const iconResult = await fetchWithSafeLimits(faviconImUrl, 2, 3000)
-          if (iconResult.buffer.byteLength > 0) {
-            const { ext } = detectIconFormat(iconResult.buffer)
-            const filename = urlHash + "." + ext
-            writeFileSync(join(iconsDir, filename), iconResult.buffer)
-            return { iconUrl: "/api/v1/icons/" + filename, candidateUrls }
-          }
-        } catch {
-          // 忽略服务端网络直连 Favicon.im 失败，继续后续探测
-        }
-      }
-
-      // 4. 尝试抓取页面 HTML 提取 declared icon（超时 2 秒防挂起）
+      const task = performFetch(safeUrl, domainHash, forceRefresh)
+      if (!forceRefresh) inFlight.set(domain, task)
       try {
-        const pageResult = await fetchWithSafeLimits(safeUrl.toString(), 2, 2000)
-        if (pageResult.contentType.includes("text/html")) {
-          const html = pageResult.buffer.toString("utf-8")
-          const iconUrls = extractIconsFromHtml(html, safeUrl.toString())
-          for (const iconUrl of iconUrls) {
-            if (!candidateUrls.includes(iconUrl)) {
-              candidateUrls.push(iconUrl)
-            }
-          }
-        }
-      } catch {
-        // 忽略页面 HTML 探测失败
-      }
-
-      // 5. 追加默认 /favicon.ico 作为候选
-      try {
-        const defaultIco = new URL("/favicon.ico", safeUrl.origin).toString()
-        if (!candidateUrls.includes(defaultIco)) {
-          candidateUrls.push(defaultIco)
-        }
-      } catch {
-        // 忽略 URL 构建异常
-      }
-
-      // 6. 若已有旧缓存，保留作为 fallback
-      let fallbackIconUrl = ""
-      for (const ext of [".png", ".ico", ".svg", ".webp", ".jpg"]) {
-        const candidateName = urlHash + ext
-        if (existsSync(join(iconsDir, candidateName))) {
-          fallbackIconUrl = "/api/v1/icons/" + candidateName
-          break
-        }
-      }
-
-      const svgCandidate = candidateUrls.find(u => u.toLowerCase().endsWith(".svg") || u.toLowerCase().includes(".svg?"))
-
-      return {
-        iconUrl: fallbackIconUrl,
-        candidateUrls,
-        svgUrl: svgCandidate,
+        return await task
+      } finally {
+        if (inFlight.get(domain) === task) inFlight.delete(domain)
       }
     },
   }

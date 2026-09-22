@@ -9,28 +9,24 @@ function resolveFitModeStyles(mode?: string | null) {
         backgroundSize: 'contain',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
-        backgroundAttachment: 'fixed',
       }
     case 'fill':
       return {
         backgroundSize: '100% 100%',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
-        backgroundAttachment: 'fixed',
       }
     case 'center':
       return {
         backgroundSize: 'auto',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
-        backgroundAttachment: 'fixed',
       }
     case 'tile':
       return {
         backgroundSize: 'auto',
         backgroundPosition: 'top left',
         backgroundRepeat: 'repeat',
-        backgroundAttachment: 'fixed',
       }
     case 'cover':
     default:
@@ -38,7 +34,6 @@ function resolveFitModeStyles(mode?: string | null) {
         backgroundSize: 'cover',
         backgroundPosition: 'center',
         backgroundRepeat: 'no-repeat',
-        backgroundAttachment: 'fixed',
       }
   }
 }

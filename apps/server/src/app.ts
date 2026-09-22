@@ -152,7 +152,7 @@ export function createApp(db: AppDatabase, config: ServerConfig) {
       const icon = faviconService.getIcon(params.filename)
       if (!icon) return status(404, { code: 'NOT_FOUND', message: '图标不存在' })
       set.headers['content-type'] = icon.contentType
-      set.headers['cache-control'] = 'public, max-age=604800, immutable'
+      set.headers['cache-control'] = 'public, max-age=31536000, immutable'
       set.headers['access-control-allow-origin'] = '*'
       if (icon.contentType === 'image/svg+xml') {
         set.headers['content-security-policy'] = "default-src 'none'; sandbox"

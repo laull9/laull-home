@@ -1,3 +1,5 @@
+import { clearAllLocalCaches } from '../utils/localCache'
+
 // 用户身份状态按 SSR 请求隔离，客户端沿用 Nuxt 状态。
 export function useAuth() {
   const user = useState<{ id: number; username: string; isDefaultPassword?: boolean } | null>('auth:user', () => null)
@@ -16,6 +18,7 @@ export function useAuth() {
     if (import.meta.server) throw new Error('登录操作需要在浏览器执行')
     const result = await $api.auth.login.post({ username, password })
     if (result.error) throw new Error('登录失败，请检查账号或稍后重试')
+    clearAllLocalCaches()
     user.value = result.data.user
   }
 
@@ -24,6 +27,7 @@ export function useAuth() {
     if (import.meta.server) throw new Error('退出操作需要在浏览器执行')
     const result = await $api.auth.logout.post()
     if (result.error && result.status !== 401) throw new Error('退出失败，请稍后重试')
+    clearAllLocalCaches()
     user.value = null
   }
 

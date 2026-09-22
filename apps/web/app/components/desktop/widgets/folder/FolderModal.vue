@@ -291,7 +291,7 @@ onUnmounted(() => {
                 @contextmenu.prevent.stop="handleBookmarkContextMenu($event, item)"
               >
                 <div class="item-icon-dock">
-                  <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="item-icon" />
+                  <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" :site-url="item.url" class="item-icon" />
                 </div>
                 <span class="item-title">{{ item.title }}</span>
               </a>

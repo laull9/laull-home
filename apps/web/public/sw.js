@@ -1,37 +1,26 @@
-// PWA 静态资源与普通空间离线缓存版本标识。
-const CACHE_NAME = 'laull-home-cache-v2'
+// PWA 缓存按职责拆分，升级时统一替换版本号。
+const CACHE_VERSION = 'v3'
+const CACHE_NAMES = {
+  assets: `laull-home-assets-${CACHE_VERSION}`,
+  media: `laull-home-media-${CACHE_VERSION}`,
+  pages: `laull-home-pages-${CACHE_VERSION}`,
+  data: `laull-home-data-${CACHE_VERSION}`,
+}
+const CACHE_PREFIX = 'laull-home-'
 
-// 判断请求是否必须严格排除在缓存之外。
-function shouldBypassCache(request) {
-  // 仅对 GET 请求提供静态缓存，写操作全部直接透传网络。
-  if (request.method !== 'GET') return true
-
+// 根据请求内容选择缓存策略，敏感接口保持完全透传。
+function getCachePolicy(request) {
+  if (request.method !== 'GET') return 'bypass'
   let url
-  try {
-    url = new URL(request.url)
-  } catch {
-    return true
-  }
-
+  try { url = new URL(request.url) } catch { return 'bypass' }
   const pathname = url.pathname.toLowerCase()
   const search = url.search.toLowerCase()
 
-  // 1. 严格排除所有认证接口，绝不落地缓存任何身份凭据。
-  if (pathname.startsWith('/api/v1/auth')) return true
-
-  // 2. 严格排除所有涉及隐私空间的接口与数据。
-  if (pathname.includes('privacy') || search.includes('privacy')) return true
-
-  // 3. 严格排除 SSE 长连接与 MCP 协议通道。
-  if (pathname.startsWith('/api/v1/desktop/events') || pathname.startsWith('/api/v1/mcp')) return true
-
-  // 4. 严格排除备份管理与外部微服务实时代理请求。
-  if (pathname.startsWith('/api/v1/backups') || pathname.startsWith('/api/v1/integrations')) return true
-
-  // 5. 放行静态媒体资产：图标与壁纸图片，支持长期高速离线访问。
-  if (pathname.startsWith('/api/v1/icons/') || pathname.startsWith('/api/v1/wallpapers/image/')) return false
-
-  // 6. 放行普通空间核心只读接口，支持全功能离线浏览与 SWR 缓存。
+  if (pathname.startsWith('/api/v1/auth')) return 'bypass'
+  if (pathname.includes('privacy') || search.includes('privacy')) return 'bypass'
+  if (pathname.startsWith('/api/v1/desktop/events') || pathname.startsWith('/api/v1/mcp')) return 'bypass'
+  if (pathname.startsWith('/api/v1/backups') || pathname.startsWith('/api/v1/integrations')) return 'bypass'
+  if (pathname.startsWith('/api/v1/icons/') || pathname.startsWith('/api/v1/wallpapers/image/')) return 'media'
   if (
     pathname === '/api/v1/settings' ||
     pathname === '/api/v1/search/engines' ||
@@ -39,83 +28,154 @@ function shouldBypassCache(request) {
     pathname === '/api/v1/bookmarks' ||
     pathname === '/api/v1/bookmarks/groups' ||
     pathname.startsWith('/api/v1/desktop/')
-  ) {
-    return false
-  }
-
-  // 7. 所有其他未明确声明的 API 接口一律走网络。
-  if (pathname.startsWith('/api/v1/')) return true
-
-  return false
+  ) return 'data'
+  if (pathname.startsWith('/api/v1/')) return 'bypass'
+  if (typeof self !== 'undefined' && self.location?.origin && url.origin !== self.location.origin) return 'bypass'
+  if (pathname.startsWith('/_nuxt/') || /\.(?:js|css|woff2?|png|jpe?g|webp|svg|ico)$/i.test(pathname)) return 'asset'
+  return 'page'
 }
 
-// 在 Service Worker 运行环境中挂载事件监听。
+// 保留旧测试与外部调用使用的排除判断。
+function shouldBypassCache(request) {
+  return getCachePolicy(request) === 'bypass'
+}
+
+// 媒体缓存忽略界面手动刷新附加的时间戳，避免同一文件重复占用空间。
+function cacheKey(request, policy) {
+  const url = new URL(request.url)
+  if (policy === 'media') {
+    url.searchParams.delete('t')
+    url.searchParams.delete('_')
+  }
+  return url.toString()
+}
+
+// 仅缓存完整成功且未明确禁止存储的响应。
+function canStore(response) {
+  const directive = response.headers.get('cache-control')?.toLowerCase() ?? ''
+  return response.status === 200 && !directive.includes('no-store') && !directive.includes('private')
+}
+
+// 控制各缓存容量，按写入顺序淘汰最旧条目。
+async function trimCache(cacheName, maximum) {
+  const cache = await caches.open(cacheName)
+  const keys = await cache.keys()
+  const overflow = keys.length - maximum
+  if (overflow > 0) await Promise.all(keys.slice(0, overflow).map(key => cache.delete(key)))
+}
+
+// 写入响应副本并执行容量收敛。
+async function storeResponse(cacheName, key, response, maximum) {
+  if (!canStore(response)) return
+  const cache = await caches.open(cacheName)
+  await cache.put(key, response.clone())
+  await trimCache(cacheName, maximum)
+}
+
+// 带缓存回退的网络请求，已有缓存时限制前台等待时间。
+async function networkFirst(request, cacheName, maximum, timeoutMs, fallbackKey) {
+  const key = cacheKey(request, cacheName === CACHE_NAMES.media ? 'media' : 'data')
+  const cache = await caches.open(cacheName)
+  const cached = await cache.match(key)
+  const network = fetch(request).then(async (response) => {
+    if (response.status === 401 || response.status === 403) await caches.delete(CACHE_NAMES.data)
+    await storeResponse(cacheName, key, response, maximum)
+    return response
+  })
+  try {
+    if (!cached) return await network
+    return await Promise.race([
+      network,
+      new Promise((resolve) => globalThis.setTimeout(() => resolve(cached), timeoutMs)),
+    ])
+  } catch {
+    if (cached) return cached
+    if (fallbackKey) {
+      const fallback = await cache.match(fallbackKey)
+      if (fallback) return fallback
+    }
+    return new Response('离线状态且无本地缓存', {
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+    })
+  }
+}
+
+// 长期媒体优先读缓存，首次未命中才访问网络。
+async function cacheFirst(request, cacheName, maximum) {
+  const key = cacheKey(request, 'media')
+  const cache = await caches.open(cacheName)
+  const cached = await cache.match(key)
+  if (cached) return cached
+  try {
+    const response = await fetch(request)
+    await storeResponse(cacheName, key, response, maximum)
+    return response
+  } catch {
+    return new Response('', { status: 504, statusText: 'Gateway Timeout' })
+  }
+}
+
+// 带后台更新的静态资源缓存避免重复阻塞页面渲染。
+async function staleWhileRevalidate(request, event) {
+  const cache = await caches.open(CACHE_NAMES.assets)
+  const key = cacheKey(request, 'asset')
+  const cached = await cache.match(key)
+  const update = fetch(request).then(async (response) => {
+    await storeResponse(CACHE_NAMES.assets, key, response, 160)
+    return response
+  }).catch(() => null)
+  if (cached) {
+    event.waitUntil(update)
+    return cached
+  }
+  return await update ?? new Response('', { status: 504, statusText: 'Gateway Timeout' })
+}
+
+// 在 Service Worker 环境中注册生命周期和请求处理。
 if (typeof self !== 'undefined' && self.addEventListener) {
-  // Service Worker 安装阶段，跳过等待立即进入活跃。
   self.addEventListener('install', (event) => {
-    event.waitUntil(self.skipWaiting())
+    event.waitUntil(
+      caches.open(CACHE_NAMES.assets)
+        .then(cache => Promise.allSettled(['/manifest.webmanifest', '/favicon.ico'].map(url => cache.add(url))))
+        .then(() => self.skipWaiting()),
+    )
   })
 
-  // Service Worker 激活阶段，接管所有受控客户端并清理历史过期缓存。
   self.addEventListener('activate', (event) => {
     event.waitUntil(
-      caches.keys().then((keys) => {
-        return Promise.all(
-          keys
-            .filter((key) => key !== CACHE_NAME)
-            .map((key) => caches.delete(key))
-        )
-      }).then(() => self.clients.claim())
+      caches.keys().then(keys => Promise.all(
+        keys.filter(key => key.startsWith(CACHE_PREFIX) && !Object.values(CACHE_NAMES).includes(key)).map(key => caches.delete(key)),
+      )).then(() => self.clients.claim()),
     )
   })
 
-  // 拦截网络请求，落实安全排除与静态资源离线回退。
+  self.addEventListener('message', (event) => {
+    if (event.data?.type !== 'CLEAR_USER_CACHES') return
+    event.waitUntil(Promise.all([
+      caches.delete(CACHE_NAMES.data),
+      caches.delete(CACHE_NAMES.media),
+      caches.delete(CACHE_NAMES.pages),
+    ]))
+  })
+
   self.addEventListener('fetch', (event) => {
-    const { request } = event
-
-    // 命中排除规则时，直接发起常规网络请求，禁止缓存。
-    if (shouldBypassCache(request)) {
-      return
+    const policy = getCachePolicy(event.request)
+    if (policy === 'bypass') return
+    if (policy === 'asset') {
+      event.respondWith(staleWhileRevalidate(event.request, event))
+    } else if (policy === 'media') {
+      event.respondWith(cacheFirst(event.request, CACHE_NAMES.media, 240))
+    } else if (policy === 'data') {
+      event.respondWith(networkFirst(event.request, CACHE_NAMES.data, 80, 1800))
+    } else {
+      event.respondWith(networkFirst(event.request, CACHE_NAMES.pages, 24, 2200, '/'))
     }
-
-    // 仅对同源的静态资产和页面进行网络优先并缓存回退。
-    const url = new URL(request.url)
-    if (url.origin !== self.location.origin) {
-      return
-    }
-
-    event.respondWith(
-      fetch(request)
-        .then((response) => {
-          // 成功获取且状态正常时，克隆并持久化至 CacheStorage。
-          if (response.status === 200 && response.type === 'basic') {
-            const clone = response.clone()
-            caches.open(CACHE_NAME).then((cache) => {
-              cache.put(request, clone)
-            })
-          }
-          return response
-        })
-        .catch(() => {
-          // 网络不可用时回退到本地缓存。
-          return caches.match(request).then((cached) => {
-            if (cached) return cached
-            // 页面导航离线回退。
-            if (request.mode === 'navigate') {
-              return caches.match('/')
-            }
-            return new Response('离线状态且无本地缓存', {
-              status: 503,
-              statusText: 'Service Unavailable',
-              headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-            })
-          })
-        })
-    )
   })
 }
 
-// 导出判断逻辑以便在 Node/Bun 测试环境中校验安全规则。
+// 导出纯判断逻辑供 Bun 测试。
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { shouldBypassCache, CACHE_NAME }
+  module.exports = { shouldBypassCache, getCachePolicy, cacheKey, CACHE_NAMES }
 }

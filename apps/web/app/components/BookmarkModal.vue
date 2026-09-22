@@ -75,7 +75,7 @@ async function handleFetchFavicon() {
     let url = formUrl.value.trim()
     if (!/^https?:\/\//i.test(url)) url = "https://" + url
     formUrl.value = url
-    const cachedUrl = await fetchFavicon(url)
+    const cachedUrl = await fetchFavicon(url, true)
     if (cachedUrl) formIconUrl.value = cachedUrl
     if (!formTitle.value) {
       try {

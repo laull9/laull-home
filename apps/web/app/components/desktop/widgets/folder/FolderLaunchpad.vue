@@ -78,7 +78,7 @@ function handleRootClick(event: MouseEvent) {
         @click.stop="onItemClick($event, item)"
         @contextmenu.prevent.stop="onItemContextMenu($event, item)"
       >
-        <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" class="launchpad-icon" />
+        <BookmarkIcon :title="item.title" :icon-url="item.iconUrl" :site-url="item.url" class="launchpad-icon" />
         <span class="launchpad-label">{{ item.title }}</span>
       </a>
       <button

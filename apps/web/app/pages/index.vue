@@ -4,7 +4,7 @@ import DesktopCanvas from '../components/desktop/DesktopCanvas.vue'
 import DesktopEditBar from '../components/desktop/DesktopEditBar.vue'
 import { useDesktopEvents } from '../composables/useDesktopEvents'
 import type { Bookmark, Breakpoint, HomeSettings } from "@laull-home/shared"
-import { getCachedSettings, setCachedSettings, clearAllLocalCaches } from '../utils/localCache'
+import { getCachedSettings, setCachedSettings } from '../utils/localCache'
 
 // 启用身份鉴权守卫，未登录直接进入独立登录页面。
 definePageMeta({
@@ -238,7 +238,6 @@ async function handleSaveGroup(name?: string) {
 
 // 处理用户登出，清空本地缓存并跳转独立登录页面。
 async function handleLogout() {
-  clearAllLocalCaches()
   await logout()
   await navigateTo('/login')
 }
