@@ -114,6 +114,7 @@ const { contextPosition, contextItems, openContext, openContextAt, contextAction
   onEditBookmark: (bm) => emit('editBookmark', bm),
   onStartEdit: () => emit('startEdit'),
   onSelectNode: (n) => { selected.value = n },
+  onOpenFolder: (n) => { canvas.value?.querySelector<HTMLElement>('#widget-' + n.id)?.dispatchEvent(new Event('open-folder', { bubbles: true })) },
 })
 // 取消空间布局修改，还原至进入编辑前的快照并自动持久化。
 async function cancelChanges() {
@@ -406,6 +407,7 @@ onUnmounted(() => {
           'drop-action-target': drag.hoverTargetId.value === entry.node.id,
           'folder-absorb-target': drag.hoverFolderId.value === entry.node.id || nativeHoverFolderId === entry.node.id,
           'touch-holding': drag.touchHoldNodeId.value === entry.node.id,
+          'touch-hold-ready': drag.touchHoldReady.value && drag.touchHoldNodeId.value === entry.node.id,
         }"
         :style="style(entry.node)"
         @pointerdown="drag.start($event, entry.node)"
@@ -472,6 +474,7 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) { .drop-action-target { transform: none; transition: none; } .touch-holding { transform: none !important; } .touch-hold-line { display: none; } .desktop-grid :deep(.folder-item-holding) { transform: none !important; } }
 /* 触屏按压等待反馈：轻微内收配合主题单色描边线，方框或圆形随组件圆角自适应 */
 .touch-holding { transform: scale(0.98); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 10; }
+.touch-holding.touch-hold-ready { touch-action: none; }
 .touch-hold-line { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 11; }
 .touch-hold-line rect { fill: none; stroke: color-mix(in srgb, var(--lh-text) 55%, transparent); stroke-width: 2; stroke-linecap: round; }
 /* 触屏长按文件夹图标：等待期原地放大即进入可拖动状态，拾起后原位淡出并把图标交给悬浮层 */

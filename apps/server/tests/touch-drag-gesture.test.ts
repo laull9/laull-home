@@ -21,13 +21,13 @@ import {
 } from '../../web/app/utils/touchGesture'
 
 describe('触屏按压判定与描边线几何', () => {
-  // 普通点按确定 0.5 秒、大块组件确定 0.65 秒、防抖 0.1 秒、静止容差 6 像素、垂直容差 5 像素。
-  test('触屏手势常量：普通 0.5 秒、大块 0.65 秒、防抖 0.1 秒、容差 6 像素', () => {
+  // 普通点按确定 0.5 秒、大块组件确定 0.65 秒、防抖 0.1 秒、静止容差 6 像素、垂直容差 5 像素、宽限 0.6 秒。
+  test('触屏手势常量：普通 0.5 秒、大块 0.65 秒、防抖 0.1 秒、宽限 0.6 秒、容差 6 像素', () => {
     expect(TOUCH_HOLD_WINDOW_MS).toBe(500)
     expect(TOUCH_HOLD_BIG_WINDOW_MS).toBe(650)
     expect(TOUCH_HOLD_DEBOUNCE_MS).toBe(100)
-    expect(TOUCH_HOLD_GRACE_MS).toBe(300)
-    expect(TOUCH_HOLD_MENU_MS).toBe(800)
+    expect(TOUCH_HOLD_GRACE_MS).toBe(600)
+    expect(TOUCH_HOLD_MENU_MS).toBe(1100)
     expect(TOUCH_DRAG_THRESHOLD).toBe(10)
     expect(TOUCH_PICK_TOLERANCE).toBe(6)
     expect(TOUCH_SCROLL_VERTICAL_TOLERANCE).toBe(5)
@@ -55,11 +55,22 @@ describe('触屏按压判定与描边线几何', () => {
     expect(resolveTouchPress(999, TOUCH_HOLD_WINDOW_MS - 1)).toBe('cancel')
   })
 
-  // 确定时间走完后位移达到阈值即判定为拖动，宽限期内起拖依然有效。
-  test('确定时间走完后位移达到阈值判定为拖动', () => {
+  // 确定时间走完后位移达到阈值即判定为拖动，动画结束～右键菜单出现的整个宽限区间内起拖依然有效。
+  test('确定时间走完后位移达到阈值判定为拖动，且在菜单出现前均可起拖', () => {
     expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_WINDOW_MS)).toBe('drag')
     expect(resolveTouchPress(80, TOUCH_HOLD_WINDOW_MS + 120)).toBe('drag')
+    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_WINDOW_MS + 300)).toBe('drag')
+    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_WINDOW_MS + 550)).toBe('drag')
     expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_MENU_MS)).toBe('drag')
+  })
+
+  // 动画走完后用户手指移动超过静止容差依然正常起拖，绝不误判为翻页取消。
+  test('长按动画结束后位移超过容差依然正常进入拖动而非取消', () => {
+    // 超过容差（例如 8px、15px、30px），在满确定时间后必须是 drag 或待起拖，绝不能被 cancel
+    expect(resolveTouchPress(TOUCH_PICK_TOLERANCE + 1, TOUCH_HOLD_WINDOW_MS)).toBe('wait')
+    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_WINDOW_MS)).toBe('drag')
+    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD + 5, TOUCH_HOLD_WINDOW_MS + 50)).toBe('drag')
+    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD + 20, TOUCH_HOLD_BIG_WINDOW_MS)).toBe('drag')
   })
 
   // 确定时间满后位移不足时继续等待，交给计时器决定是拖动还是菜单。

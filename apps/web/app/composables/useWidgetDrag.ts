@@ -47,6 +47,8 @@ export function useWidgetDrag(options: {
   const touchHoldNodeId = ref<string | null>(null)
   // 触屏按压描边线的绘制几何。
   const touchHoldShape = ref<TouchPressLine | null>(null)
+  // 触屏按压已达成确定，进入动画结束后的可拖动就绪状态。
+  const touchHoldReady = ref(false)
   // 触屏手势进行中，用于屏蔽浏览器原生长按菜单与拖动入口相互抢占。
   const touchGesture = ref(false)
   let suppressClick = false
@@ -72,6 +74,11 @@ export function useWidgetDrag(options: {
     suppressClickTimer = setTimeout(() => { suppressClick = false }, 350)
   }
 
+  // 动画完成或进入拖动期间拦截触摸滚动，防止浏览器以原生 pan-y 滚动打断纵向拖动。
+  function blockTouchScroll(ev: TouchEvent) {
+    if (touchHoldReady.value || session.value) ev.preventDefault()
+  }
+
   // 结束触屏按压等待：清理计时器、动画进度、几何参数与等待期监听。
   function cancelTouchHold() {
     if (touchHoldTimer) { clearTimeout(touchHoldTimer); touchHoldTimer = undefined }
@@ -86,6 +93,7 @@ export function useWidgetDrag(options: {
     touchHoldStartMs = 0
     touchHoldWindowMs = TOUCH_HOLD_WINDOW_MS
     touchHoldReached = false
+    touchHoldReady.value = false
   }
 
   // 每帧递进按压进度，窗口到期时描边线刚好闭合。
@@ -207,22 +215,37 @@ export function useWidgetDrag(options: {
       touchGesture.value = false
     }
 
-    // 抬手或系统取消都放弃本次按压。
-    function onPressEnd(ev: PointerEvent) { if (ev.pointerId === pid) finish() }
+    // 拦截触屏手势期间浏览器的原生长按菜单，避免提前弹出原生或子组件菜单。
+    function blockNativeMenu(ev: Event) {
+      if (ev.isTrusted) { ev.preventDefault(); ev.stopPropagation() }
+    }
 
-    // 等待期移动：垂直位移超过 5px 或总位移超过 6px 立刻取消长按判定并拦截随后的误点击。
+    // 抬手：若已达成确定且未发生位移，在触摸点弹出菜单；其余情况直接结束。
+    function onPressEnd(ev: PointerEvent) {
+      if (ev.pointerId !== pid) return
+      const shouldOpenMenu = touchHoldReached && !movedBeyond && maxDistance <= TOUCH_PICK_TOLERANCE
+      finish()
+      if (shouldOpenMenu) options.onTouchHoldMenu?.(node, sx, sy)
+    }
+
+    // 等待期移动：确定时间走完之前严格防滑动翻页误触；走完之后位移达到阈值直接起拖。
     function onPressMove(ev: PointerEvent) {
       if (ev.pointerId !== pid) return
       const dx = ev.clientX - sx
       const dy = ev.clientY - sy
       const distance = Math.hypot(dx, dy)
       if (distance > maxDistance) maxDistance = distance
-      if (isTouchMoveExceeded(dx, dy)) movedBeyond = true
-      if (movedBeyond) {
-        finish()
-        return
+      const elapsedMs = performance.now() - touchHoldStartMs
+
+      // 确定时间走完之前：垂直位移超过 5px 或总位移超过 6px 立刻取消长按判定并让位给翻页。
+      if (!touchHoldReached && elapsedMs < windowMs) {
+        if (isTouchMoveExceeded(dx, dy)) {
+          movedBeyond = true
+          finish()
+          return
+        }
       }
-      const outcome = resolveTouchPress(distance, performance.now() - touchHoldStartMs, menuMs, TOUCH_DRAG_THRESHOLD, windowMs)
+      const outcome = resolveTouchPress(distance, elapsedMs, menuMs, TOUCH_DRAG_THRESHOLD, windowMs)
       if (outcome === 'cancel') {
         finish()
         return
@@ -231,6 +254,7 @@ export function useWidgetDrag(options: {
       cancelTouchHold()
       session.value = { id: node.id, pointer: pid, startX: sx, startY: sy,
         offsetX: sx - bounds.left, offsetY: sy - bounds.top, dx: 0, dy: 0, active: false, element, pointerType: 'touch' }
+      document.addEventListener('touchmove', blockTouchScroll, { passive: false })
       document.addEventListener('pointermove', move, { passive: false })
       document.addEventListener('pointerup', end)
       document.addEventListener('pointercancel', cancel)
@@ -242,10 +266,14 @@ export function useWidgetDrag(options: {
       document.removeEventListener('pointermove', onPressMove)
       document.removeEventListener('pointerup', onPressEnd)
       document.removeEventListener('pointercancel', onPressEnd)
+      document.removeEventListener('contextmenu', blockNativeMenu, true)
+      document.removeEventListener('touchmove', blockTouchScroll)
     }
     document.addEventListener('pointermove', onPressMove, { passive: false })
     document.addEventListener('pointerup', onPressEnd)
     document.addEventListener('pointercancel', onPressEnd)
+    document.addEventListener('contextmenu', blockNativeMenu, true)
+    document.addEventListener('touchmove', blockTouchScroll, { passive: false })
 
     // 防抖期内保持静止才开启视觉反馈。
     touchHoldDebounceTimer = setTimeout(showVisual, TOUCH_HOLD_DEBOUNCE_MS)
@@ -256,10 +284,14 @@ export function useWidgetDrag(options: {
       if (touchHoldFrame) { cancelAnimationFrame(touchHoldFrame); touchHoldFrame = 0 }
       touchHoldProgress.value = 1
       touchHoldReached = true
+      touchHoldReady.value = true
+      try { navigator?.vibrate?.(10) } catch { /* 振动反馈 */ }
       touchHoldMenuTimer = setTimeout(() => {
         touchHoldNodeId.value = null
         touchHoldShape.value = null
-        options.onTouchHoldMenu?.(node, sx, sy)
+        if (!movedBeyond && maxDistance <= TOUCH_PICK_TOLERANCE && !session.value) {
+          options.onTouchHoldMenu?.(node, sx, sy)
+        }
       }, TOUCH_HOLD_GRACE_MS)
     }, windowMs)
   }
@@ -381,7 +413,9 @@ export function useWidgetDrag(options: {
     const threshold = current.pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD : 5
     if (!current.active && Math.hypot(dx, dy) < threshold) return
     current.active = true
-    if (!current.element.hasPointerCapture(event.pointerId)) current.element.setPointerCapture(event.pointerId)
+    try {
+      if (!current.element.hasPointerCapture(event.pointerId)) current.element.setPointerCapture(event.pointerId)
+    } catch { /* 忽略无指针捕获权限异常 */ }
     event.preventDefault()
     pendingMove = { pointer: event.pointerId, clientX: event.clientX, clientY: event.clientY }
     if (!moveFrame) {
@@ -424,7 +458,9 @@ export function useWidgetDrag(options: {
     const current = session.value
     if (current?.active) suppressClick = true
     if (current?.element) {
-      if (current.element.hasPointerCapture(current.pointer)) current.element.releasePointerCapture(current.pointer)
+      try {
+        if (current.element.hasPointerCapture(current.pointer)) current.element.releasePointerCapture(current.pointer)
+      } catch { /* 忽略释放异常 */ }
     }
     session.value = null
     preview.value = null
@@ -435,6 +471,7 @@ export function useWidgetDrag(options: {
     document.removeEventListener('pointerup', end)
     document.removeEventListener('pointercancel', cancel)
     document.removeEventListener('keydown', escape)
+    document.removeEventListener('touchmove', blockTouchScroll)
   }
 
   // Esc 提供可恢复的取消路径。
@@ -454,5 +491,5 @@ export function useWidgetDrag(options: {
     return current?.active && current.id === id ? { transform: 'translate3d(' + current.dx + 'px,' + current.dy + 'px,0)', zIndex: 80 } : {}
   }
   onUnmounted(cancel)
-  return { start, cancel, click, transform, placement, preview, draggingId, hoverFolderId, hoverTargetId, folderAction, vector, touchHoldProgress, touchHoldNodeId, touchHoldShape, touchGesture }
+  return { start, cancel, click, transform, placement, preview, draggingId, hoverFolderId, hoverTargetId, folderAction, vector, touchHoldProgress, touchHoldNodeId, touchHoldShape, touchHoldReady, touchGesture }
 }

@@ -5,7 +5,7 @@ export const TOUCH_HOLD_BIG_WINDOW_MS = 650
 // 按压视觉反馈的防抖延迟（毫秒）：按下前 100ms 处于静止观察期，不展现缩放与描边，避免滑动翻页时闪烁。
 export const TOUCH_HOLD_DEBOUNCE_MS = 100
 // 确定完成后的拖动宽限时长（毫秒）：期间仍可起拖，超时未拖动才弹出长按菜单。
-export const TOUCH_HOLD_GRACE_MS = 300
+export const TOUCH_HOLD_GRACE_MS = 600
 // 长按菜单最早出现的时刻，等于按压窗口加宽限期。
 export const TOUCH_HOLD_MENU_MS = TOUCH_HOLD_WINDOW_MS + TOUCH_HOLD_GRACE_MS
 // 触屏进入拖动所需的最小位移（像素），与拖动过程中的激活阈值保持一致。
