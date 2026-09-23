@@ -450,7 +450,7 @@ onUnmounted(() => {
 .canvas-loading { background: color-mix(in srgb, var(--lh-surface, #fff) 85%, transparent); border: 1px solid var(--lh-border); color: var(--lh-text-secondary); }
 .desktop-grid { position: relative; display: grid; grid-template-columns: repeat(var(--columns), minmax(0, 1fr)); grid-auto-rows: 96px; gap: var(--lh-grid-gap, 16px); min-height: 220px; width: 100%; }
 .widget { position: relative; min-width: 0; container-type: inline-size; padding: var(--widget-padding, 12px); border: var(--widget-border, 1px) solid var(--lh-border); border-radius: var(--widget-radius, var(--lh-radius-lg)); background: color-mix(in srgb, var(--widget-surface, var(--lh-surface-solid, white)) var(--widget-opacity, var(--lh-surface-opacity, 92%)), transparent); color: var(--widget-text, var(--lh-text)); backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); -webkit-backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-card); transition: box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, color 0.2s, border-radius 0.2s; }
-.draggable-widget { cursor: grab; touch-action: none; -webkit-user-drag: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.draggable-widget { cursor: grab; touch-action: pan-y; -webkit-user-drag: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .drop-action-target { outline: 2px solid var(--lh-accent); outline-offset: 2px; transform: scale(.985); transition: transform .12s ease-out, box-shadow .12s ease-out; }
 .folder-absorb-target { outline: 2px solid var(--lh-accent) !important; box-shadow: 0 0 14px color-mix(in srgb, var(--lh-accent) 45%, transparent) !important; }
 :root[data-theme="modern"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover { transform: translateY(-2px); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-hover); transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -462,10 +462,10 @@ onUnmounted(() => {
 .editing .frameless-widget:hover { border-color: rgba(255, 255, 255, 0.25); background: rgba(255, 255, 255, 0.04) !important; }
 .widget-tools { position: absolute; top: -12px; right: 4px; z-index: 6; display: flex; border: 1px solid var(--lh-border); background: color-mix(in srgb, var(--lh-bg) 88%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-radius: 6px; box-shadow: var(--lh-shadow-sm); opacity: 0; transition: opacity .15s; }
 .widget-tools button { padding: 3px 5px; font-size: 10px; min-height: 24px; }
-.editing .widget { cursor: grab; touch-action: none; user-select: none; }
+.editing .widget { cursor: grab; touch-action: pan-y; user-select: none; }
 .editing .widget input, .editing .widget textarea { cursor: text; touch-action: auto; user-select: text; }
 .widget:hover .widget-tools, .widget:focus-within .widget-tools { opacity: 1; }
-.dragging-widget { pointer-events: none; cursor: grabbing; opacity: .94; box-shadow: var(--lh-shadow-dropdown); transition: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; will-change: transform; }
+.dragging-widget { pointer-events: none; cursor: grabbing; touch-action: none; opacity: .94; box-shadow: var(--lh-shadow-dropdown); transition: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; will-change: transform; }
 .drop-preview { z-index: 0; pointer-events: none; border: 2px solid var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 12%, transparent); border-radius: var(--lh-radius-lg); }
 .is-dragging::before { content: ''; position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(circle, var(--lh-border-hover) 1px, transparent 1px); background-size: calc((100% + var(--lh-grid-gap, 16px)) / var(--columns)) 112px; }
 @media (hover: none) { .widget-tools { opacity: 1; } }
@@ -475,7 +475,7 @@ onUnmounted(() => {
 .touch-hold-line { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 11; }
 .touch-hold-line rect { fill: none; stroke: color-mix(in srgb, var(--lh-text) 55%, transparent); stroke-width: 2; stroke-linecap: round; }
 /* 触屏长按文件夹图标：等待期原地放大即进入可拖动状态，拾起后原位淡出并把图标交给悬浮层 */
-.desktop-grid :deep([data-folder-item]) { -webkit-touch-callout: none; }
+.desktop-grid :deep([data-folder-item]) { -webkit-touch-callout: none; touch-action: pan-y; }
 /* 仅触屏禁用原生拖拽，桌面端继续用 HTML5 拖放把图标拖出文件夹 */
 @media (pointer: coarse) { .desktop-grid :deep([data-folder-item]) { -webkit-user-drag: none; } }
 .desktop-grid :deep(.folder-item-holding) { transform: scale(1.08) !important; opacity: 1; filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.22)) brightness(1.12); transition: transform 0.18s ease-out, opacity 0.18s ease-out, filter 0.18s ease-out; }
