@@ -17,6 +17,7 @@ export function useCanvasContextMenu(options: {
   onEditBookmark: (bookmark: Bookmark) => void
   onStartEdit: () => void
   onSelectNode: (node: WidgetNode) => void
+  onOpenFolder?: (node: WidgetNode) => void
 }) {
   const contextPosition = ref<{ x: number; y: number } | null>(null)
   const contextNode = ref<WidgetNode | null>(null)
@@ -26,7 +27,10 @@ export function useCanvasContextMenu(options: {
     ...(contextNode.value ? [
       { id: 'configure', label: '配置组件外观' },
       ...(contextNode.value.type === 'bookmark' ? [{ id: 'bookmark', label: '编辑此书签' }] : []),
-      ...(contextNode.value.type === 'folder' ? [{ id: 'add-to-folder', label: '在此文件夹添加图标' }] : []),
+      ...(contextNode.value.type === 'folder' ? [
+        { id: 'add-to-folder', label: '在此文件夹添加图标' },
+        { id: 'open-folder', label: '展开全部内容' },
+      ] : []),
       { id: 'delete', label: '删除此组件' },
     ] : []),
     { id: 'layout', label: '编辑当前空间布局' },
@@ -62,6 +66,10 @@ export function useCanvasContextMenu(options: {
     if (id === 'add') { options.onQuickAdd(); return }
     if (id === 'add-to-folder' && contextNode.value) {
       options.onAddBookmark(contextNode.value.referenceId)
+      return
+    }
+    if (id === 'open-folder' && contextNode.value) {
+      options.onOpenFolder?.(contextNode.value)
       return
     }
     if (id === 'delete' && contextNode.value) {

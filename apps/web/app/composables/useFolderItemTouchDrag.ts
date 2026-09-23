@@ -235,11 +235,14 @@ export function useFolderItemTouchDrag(options: {
     const dy = event.clientY - startY
     const distance = Math.hypot(dx, dy)
     if (distance > maxDistance) maxDistance = distance
-    if (isTouchMoveExceeded(dx, dy)) movedBeyond = true
-    if (movedBeyond) {
-      markSuppressClick()
-      reset()
-      return
+    // 确定时间走完之前：垂直位移超过 5px 或总位移超过 6px 立刻让位给页面翻动或列表滚动。
+    if (!armed && !pickedUp && performance.now() - startMs < TOUCH_HOLD_WINDOW_MS) {
+      if (isTouchMoveExceeded(dx, dy)) {
+        movedBeyond = true
+        markSuppressClick()
+        reset()
+        return
+      }
     }
     const outcome = resolveTouchPick(distance, performance.now() - startMs, source?.mode ?? 'direct')
     if (outcome === 'scroll') {

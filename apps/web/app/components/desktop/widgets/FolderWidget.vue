@@ -24,19 +24,14 @@ const contextBookmark = ref<Bookmark | null>(null)
 // 书签删除与更新接口。
 const { deleteBookmark } = useBookmarks()
 
-// 根据右键对象动态计算快捷菜单项。
+// 根据选中的书签条目动态计算快捷菜单项。
 const contextItems = computed(() => {
-  if (contextBookmark.value) {
-    return [
-      { id: 'open-new-tab', label: '在新标签页打开' },
-      { id: 'copy-link', label: '复制链接' },
-      { id: 'edit-bookmark', label: '编辑此书签' },
-      { id: 'delete-bookmark', label: '删除此书签' },
-      { id: 'add', label: '在此文件夹添加图标' },
-      { id: 'open', label: '展开全部内容' },
-    ]
-  }
+  if (!contextBookmark.value) return []
   return [
+    { id: 'open-new-tab', label: '在新标签页打开' },
+    { id: 'copy-link', label: '复制链接' },
+    { id: 'edit-bookmark', label: '编辑此书签' },
+    { id: 'delete-bookmark', label: '删除此书签' },
     { id: 'add', label: '在此文件夹添加图标' },
     { id: 'open', label: '展开全部内容' },
   ]
@@ -78,15 +73,6 @@ function handleBookmarkContextMenu(event: MouseEvent, item: Bookmark) {
   event.preventDefault()
   event.stopPropagation()
   contextBookmark.value = item
-  contextPosition.value = { x: event.clientX, y: event.clientY }
-}
-
-// 文件夹非编辑态空白区域右键菜单。
-function handleContextMenu(event: MouseEvent) {
-  if (props.editing) return
-  event.preventDefault()
-  event.stopPropagation()
-  contextBookmark.value = null
   contextPosition.value = { x: event.clientX, y: event.clientY }
 }
 
@@ -136,7 +122,7 @@ async function handleContextAction(id: string) {
 </script>
 
 <template>
-  <div class="folder-root" :class="['folder-' + (node.variant || 'accordion'), { compact: width === 1 }]" @click="handleRootClick" @contextmenu="handleContextMenu">
+  <div class="folder-root" :class="['folder-' + (node.variant || 'accordion'), { compact: width === 1 }]" @click="handleRootClick" @open-folder="isModalOpen = true">
     <!-- 极窄 1 列尺寸降级为紧凑微缩按钮 -->
     <button
       v-if="width === 1"
