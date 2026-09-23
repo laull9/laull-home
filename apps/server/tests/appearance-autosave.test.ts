@@ -304,3 +304,22 @@ test('语义状态色彩：所有二十套预设双模均包含完整危险/成�
   expect(matrixTokens['--lh-success']).toBe('#00ff66')
 })
 
+test('壁纸层几何规范：尺寸只跟随窗口，不随滚动条与动态视口变化', async () => {
+  const source = await Bun.file(new URL('../../web/app/app.vue', import.meta.url).pathname).text()
+
+  // 壁纸、暗化与设置页遮罩三层共用同一条尺寸规则，必须能取出。
+  const rule = source.match(/\.wallpaper-layer,[^{]*\{[^}]*\}/)?.[0]
+  expect(rule).toBeTruthy()
+  expect(rule!).toContain('position: fixed')
+  expect(rule!).toContain('width: 100vw')
+  expect(rule!).toContain('height: 100vh')
+
+  // 关键约束：不能用跟随视口可视区的 100%/inset，也不能用动态视口 dvh。
+  // 拖动组件会把落点框所在行撑高、让纵向滚动条出现并收窄可视区，dvh 还会随移动端地址栏收放变化，
+  // 两者都会让 cover 背景重新缩放，表现为"一拖动壁纸就被拉伸"。
+  expect(rule!).not.toContain('dvh')
+  expect(rule!).not.toContain('width: 100%')
+  expect(rule!).not.toContain('height: 100%')
+  expect(rule!).not.toContain('inset')
+})
+

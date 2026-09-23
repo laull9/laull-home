@@ -180,9 +180,24 @@ function onBackdropClick(event: MouseEvent) {
   }
 }
 
-// 视窗打开时自动聚焦并重置筛选。
+// 触屏把条目拖出视窗：先只做视觉隐藏，落点预览交给桌面网格。
+// 拖到一半就移除本节点会中断真实触摸的指针序列（真机发 pointercancel），
+// 导致「图标刚拖出文件夹就消失」，所以真正退出推迟到手势结束。
+function handleTouchDragOut() {
+  if (!props.show) return
+  isDraggedOutside.value = true
+}
+
+// 触屏拖出手势结束后再退出容器，此时拖拽已落盘，移除节点不会影响结果。
+function handleTouchDragSettled() {
+  if (!props.show) return
+  emit('close')
+}
+
+// 视窗打开时复位拖出状态、自动聚焦并重置筛选。
 watch(() => props.show, async isOpen => {
   if (isOpen) {
+    isDraggedOutside.value = false
     filterText.value = ''
     await nextTick()
     searchInputRef.value?.focus()
@@ -208,11 +223,16 @@ onUnmounted(() => {
         :class="{ 'dragged-outside': isDraggedOutside }"
         role="dialog"
         :aria-label="title || '收纳容器'"
+        data-folder-modal="true"
+        :data-folder-node-id="folderNodeId || ''"
         @click="onBackdropClick"
+        @folder-drag-out="handleTouchDragOut"
+        @folder-drag-settled="handleTouchDragSettled"
       >
         <div
           ref="viewportRef"
           class="container-viewport"
+          data-folder-panel="true"
           :class="{ 'drag-target-active': isDragOver }"
           @dragover="handleViewportDragOver"
           @dragleave="handleViewportDragLeave"
@@ -281,6 +301,7 @@ onUnmounted(() => {
                 }"
                 :title="item.title"
                 data-folder-item="true"
+                :data-bookmark-id="item.id"
                 draggable="true"
                 @dragstart="handleItemDragStart($event, item)"
                 @dragover="handleItemDragOver($event, item)"
@@ -396,6 +417,11 @@ onUnmounted(() => {
 .grid-item-card { display: flex; flex-direction: column; align-items: center; gap: 8px; text-decoration: none; color: inherit; padding: 6px 4px; border-radius: var(--lh-radius-md); transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.15s ease, background-color 0.15s ease; position: relative; }
 .grid-item-card:hover { transform: translateY(-4px); }
 .grid-item-card.is-dragging { opacity: 0.35; transform: scale(0.92); }
+/* 触屏按住不动即进入可拖动态：原地放大并加深图标阴影，与拖动中的淡出形成前后两段反馈 */
+.grid-item-card.is-holding { transform: translateY(-4px) scale(1.12); z-index: 2; }
+.grid-item-card.is-holding .item-icon-dock { transform: scale(1.1); filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.24)) brightness(1.15); }
+/* 仅触屏禁用原生拖拽，桌面端继续用 HTML5 拖放把条目拖出容器 */
+@media (pointer: coarse) { .grid-item-card { -webkit-user-drag: none; -webkit-touch-callout: none; } }
 .grid-item-card.drop-before { box-shadow: -3px 0 0 var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 15%, transparent); }
 .grid-item-card.drop-after { box-shadow: 3px 0 0 var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 15%, transparent); }
 .item-icon-dock { width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: transparent; border: none; box-shadow: none; transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), filter 0.2s ease; }
