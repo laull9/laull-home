@@ -3,34 +3,56 @@ import {
   resolveGridCell,
   resolveTouchPress,
   resolveTouchPick,
+  isTouchMoveExceeded,
   touchLeftSource,
   touchPressLine,
   touchPressProgress,
   GRID_MAX_ROW,
   GRID_ROW_HEIGHT,
   TOUCH_DRAG_THRESHOLD,
+  TOUCH_HOLD_BIG_WINDOW_MS,
+  TOUCH_HOLD_DEBOUNCE_MS,
   TOUCH_HOLD_GRACE_MS,
   TOUCH_HOLD_MENU_MS,
   TOUCH_HOLD_WINDOW_MS,
   TOUCH_PICK_TOLERANCE,
+  TOUCH_SCROLL_VERTICAL_TOLERANCE,
   TOUCH_SOURCE_LEAVE_BUFFER,
 } from '../../web/app/utils/touchGesture'
 
 describe('触屏按压判定与描边线几何', () => {
-  // 点按确定时间固定 0.5 秒，其后留 0.3 秒宽限，长按菜单最早在 0.8 秒出现。
-  test('点按确定时间 0.5 秒、宽限 0.3 秒、菜单最早 0.8 秒', () => {
+  // 普通点按确定 0.5 秒、大块组件确定 0.65 秒、防抖 0.1 秒、静止容差 6 像素、垂直容差 5 像素。
+  test('触屏手势常量：普通 0.5 秒、大块 0.65 秒、防抖 0.1 秒、容差 6 像素', () => {
     expect(TOUCH_HOLD_WINDOW_MS).toBe(500)
+    expect(TOUCH_HOLD_BIG_WINDOW_MS).toBe(650)
+    expect(TOUCH_HOLD_DEBOUNCE_MS).toBe(100)
     expect(TOUCH_HOLD_GRACE_MS).toBe(300)
     expect(TOUCH_HOLD_MENU_MS).toBe(800)
     expect(TOUCH_DRAG_THRESHOLD).toBe(10)
+    expect(TOUCH_PICK_TOLERANCE).toBe(6)
+    expect(TOUCH_SCROLL_VERTICAL_TOLERANCE).toBe(5)
   })
 
-  // 点按确定时间（描边线闭合）走完之前，位移再大也不进入拖动，避免动画未完成就被拖走。
-  test('确定时间走完前任何位移都不进入拖动', () => {
-    expect(resolveTouchPress(10, 0)).toBe('wait')
-    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_WINDOW_MS - 1)).toBe('wait')
-    expect(resolveTouchPress(120, 60)).toBe('wait')
-    expect(resolveTouchPress(999, TOUCH_HOLD_WINDOW_MS - 1)).toBe('wait')
+  // 判定触屏位移是否超出静止容差：垂直位移超过 5 像素或对角线位移超过 6 像素判定为翻页滑动。
+  test('位移判定函数精确区分静止微颤与垂直翻页滑动', () => {
+    expect(isTouchMoveExceeded(0, 0)).toBe(false)
+    expect(isTouchMoveExceeded(2, 3)).toBe(false)
+    expect(isTouchMoveExceeded(0, 5)).toBe(false)
+    expect(isTouchMoveExceeded(0, 5.1)).toBe(true)
+    expect(isTouchMoveExceeded(0, -6)).toBe(true)
+    expect(isTouchMoveExceeded(6, 0)).toBe(false)
+    expect(isTouchMoveExceeded(6.1, 0)).toBe(true)
+  })
+
+  // 点按确定时间（描边线闭合）走完之前，位移在容差内保持等待，超出容差立刻取消判定让位给翻页。
+  test('确定时间走完前位移在容差内等待，超出容差立刻取消长按让位给翻页', () => {
+    expect(resolveTouchPress(0, 0)).toBe('wait')
+    expect(resolveTouchPress(TOUCH_PICK_TOLERANCE, 0)).toBe('wait')
+    expect(resolveTouchPress(TOUCH_PICK_TOLERANCE, TOUCH_HOLD_WINDOW_MS - 1)).toBe('wait')
+    expect(resolveTouchPress(TOUCH_PICK_TOLERANCE + 0.1, 60)).toBe('cancel')
+    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, 120)).toBe('cancel')
+    expect(resolveTouchPress(120, 60)).toBe('cancel')
+    expect(resolveTouchPress(999, TOUCH_HOLD_WINDOW_MS - 1)).toBe('cancel')
   })
 
   // 确定时间走完后位移达到阈值即判定为拖动，宽限期内起拖依然有效。
@@ -40,10 +62,9 @@ describe('触屏按压判定与描边线几何', () => {
     expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_MENU_MS)).toBe('drag')
   })
 
-  // 位移不足时继续等待，交给计时器决定是拖动还是菜单。
-  test('确定时间前后位移不足时都保持等待', () => {
-    expect(resolveTouchPress(0, 0)).toBe('wait')
-    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD - 1, TOUCH_HOLD_WINDOW_MS - 1)).toBe('wait')
+  // 确定时间满后位移不足时继续等待，交给计时器决定是拖动还是菜单。
+  test('确定时间满后位移不足时保持等待', () => {
+    expect(resolveTouchPress(0, TOUCH_HOLD_WINDOW_MS)).toBe('wait')
     expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD - 1, TOUCH_HOLD_WINDOW_MS + 200)).toBe('wait')
   })
 
@@ -53,19 +74,16 @@ describe('触屏按压判定与描边线几何', () => {
     expect(resolveTouchPress(120, TOUCH_HOLD_MENU_MS + 1)).toBe('expired')
   })
 
-  // 未展开文件夹里的图标（内容不滚动）：确定时间走完前不拾起，与主页图标保持同一套判定。
-  test('文件夹未打开时确定时间内不拾起', () => {
+  // 文件夹未打开（桌面组件）内的图标：确定时间前超出容差立刻让位给页面翻动，确定后才可拾起。
+  test('文件夹未打开时确定时间内让位给翻动，满确定时间后可拖动', () => {
     expect(resolveTouchPick(0, 0, 'direct')).toBe('wait')
     expect(resolveTouchPick(TOUCH_PICK_TOLERANCE, 60, 'direct')).toBe('wait')
-    expect(resolveTouchPick(TOUCH_DRAG_THRESHOLD, 0, 'direct')).toBe('wait')
-    expect(resolveTouchPick(200, TOUCH_HOLD_WINDOW_MS - 1, 'direct')).toBe('wait')
-  })
-
-  // 确定时间走完后位移达到阈值立刻拾起并拖动。
-  test('文件夹未打开时确定时间走完后按位移拾起', () => {
+    expect(resolveTouchPick(TOUCH_PICK_TOLERANCE + 1, 60, 'direct')).toBe('scroll')
+    expect(resolveTouchPick(TOUCH_DRAG_THRESHOLD, 100, 'direct')).toBe('scroll')
+    expect(resolveTouchPick(200, TOUCH_HOLD_WINDOW_MS - 1, 'direct')).toBe('scroll')
+    expect(resolveTouchPick(0, TOUCH_HOLD_WINDOW_MS, 'direct')).toBe('armed')
     expect(resolveTouchPick(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_WINDOW_MS, 'direct')).toBe('pick')
     expect(resolveTouchPick(60, TOUCH_HOLD_WINDOW_MS + 300, 'direct')).toBe('pick')
-    expect(resolveTouchPick(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_WINDOW_MS * 3, 'direct')).toBe('pick')
   })
 
   // 满确定时间仍未移动时进入就绪状态，之后任何位移都直接拖动。
@@ -85,6 +103,32 @@ describe('触屏按压判定与描边线几何', () => {
     expect(resolveTouchPick(0, TOUCH_HOLD_WINDOW_MS, 'scrollable')).toBe('armed')
     expect(resolveTouchPick(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_WINDOW_MS + 200, 'scrollable')).toBe('pick')
     expect(resolveTouchPick(TOUCH_DRAG_THRESHOLD - 1, TOUCH_HOLD_WINDOW_MS + 200, 'scrollable')).toBe('armed')
+  })
+
+  // 翻页滑动场景：快速划过与慢速滑动位移超出 6 像素容差必须立刻取消，杜绝误触长按。
+  test('模拟触屏翻页滑动场景：位移超过 6 像素必定取消长按与拾起', () => {
+    // 快速划屏（50ms 内滑出 40px）
+    expect(resolveTouchPress(40, 50)).toBe('cancel')
+    expect(resolveTouchPick(40, 50, 'direct')).toBe('scroll')
+    expect(resolveTouchPick(40, 50, 'scrollable')).toBe('scroll')
+    // 慢速翻页（250ms 内滑出 12px）
+    expect(resolveTouchPress(12, 250)).toBe('cancel')
+    expect(resolveTouchPick(12, 250, 'direct')).toBe('scroll')
+    expect(resolveTouchPick(12, 250, 'scrollable')).toBe('scroll')
+    // 容差边界临界值：正好 6px 仍算等待，一旦 6.1px 立即 cancel
+    expect(resolveTouchPress(TOUCH_PICK_TOLERANCE, 300)).toBe('wait')
+    expect(resolveTouchPress(TOUCH_PICK_TOLERANCE + 0.1, 300)).toBe('cancel')
+    expect(resolveTouchPick(TOUCH_PICK_TOLERANCE, 300, 'direct')).toBe('wait')
+    expect(resolveTouchPick(TOUCH_PICK_TOLERANCE + 0.1, 300, 'direct')).toBe('scroll')
+  })
+
+  // 大块组件（如文件夹）判定时间收紧为 0.65 秒，在普通 0.5 秒时刻依然处于等待，避免慢速滑屏误触。
+  test('大块组件在 0.5 秒时刻依然处于按压等待，满 0.65 秒才确定长按', () => {
+    const bigMenuMs = TOUCH_HOLD_BIG_WINDOW_MS + TOUCH_HOLD_GRACE_MS
+    // 500ms（普通组件满期时刻）：大块组件依然静止等待，不提前触发拖动
+    expect(resolveTouchPress(0, TOUCH_HOLD_WINDOW_MS, bigMenuMs, TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_BIG_WINDOW_MS)).toBe('wait')
+    // 650ms（大块组件满期时刻）：位移达到阈值才判定为拖动
+    expect(resolveTouchPress(TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_BIG_WINDOW_MS, bigMenuMs, TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_BIG_WINDOW_MS)).toBe('drag')
   })
 
   // 指针越过来源容器边界加缓冲后即可落到桌面网格，退化矩形视为已离开。

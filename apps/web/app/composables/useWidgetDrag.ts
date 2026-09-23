@@ -1,6 +1,18 @@
 import { ref, computed, onUnmounted, type Ref } from 'vue'
 import { arrangeNodes, BREAKPOINTS, snapGridCoordinate, type WidgetNode, type Breakpoint, type Placement } from '@laull-home/shared'
-import { TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_GRACE_MS, TOUCH_HOLD_WINDOW_MS, resolveTouchPress, touchPressLine, touchPressProgress, type TouchPressLine } from '../utils/touchGesture'
+import {
+  TOUCH_DRAG_THRESHOLD,
+  TOUCH_HOLD_BIG_WINDOW_MS,
+  TOUCH_HOLD_DEBOUNCE_MS,
+  TOUCH_HOLD_GRACE_MS,
+  TOUCH_HOLD_WINDOW_MS,
+  TOUCH_PICK_TOLERANCE,
+  isTouchMoveExceeded,
+  resolveTouchPress,
+  touchPressLine,
+  touchPressProgress,
+  type TouchPressLine,
+} from '../utils/touchGesture'
 
 // 拖动状态保留抓取偏移，组件跟随指针而不跳到左上角。
 interface DragSession {
@@ -38,22 +50,33 @@ export function useWidgetDrag(options: {
   // 触屏手势进行中，用于屏蔽浏览器原生长按菜单与拖动入口相互抢占。
   const touchGesture = ref(false)
   let suppressClick = false
+  let suppressClickTimer: ReturnType<typeof setTimeout> | undefined
   let edgeHoverTimer: ReturnType<typeof setTimeout> | undefined
   let edgeHoverTargetId: string | null = null
   let pendingMove: PendingMove | null = null
   let moveFrame = 0
-  // 触屏按压计时器、宽限期菜单计时器、动画帧标识与等待期监听清理函数。
+  // 触屏按压计时器、宽限期菜单计时器、防抖启动计时器、动画帧标识与等待期监听清理函数。
   let touchHoldTimer: ReturnType<typeof setTimeout> | undefined
   let touchHoldMenuTimer: ReturnType<typeof setTimeout> | undefined
+  let touchHoldDebounceTimer: ReturnType<typeof setTimeout> | undefined
   let touchHoldFrame = 0
   let touchHoldStartMs = 0
+  let touchHoldWindowMs = TOUCH_HOLD_WINDOW_MS
   let touchHoldReached = false
   let detachTouchPress: (() => void) | undefined
+
+  // 标记屏蔽后续紧随的点击，并在延时后自动复位。
+  function markSuppressClick() {
+    suppressClick = true
+    if (suppressClickTimer) clearTimeout(suppressClickTimer)
+    suppressClickTimer = setTimeout(() => { suppressClick = false }, 350)
+  }
 
   // 结束触屏按压等待：清理计时器、动画进度、几何参数与等待期监听。
   function cancelTouchHold() {
     if (touchHoldTimer) { clearTimeout(touchHoldTimer); touchHoldTimer = undefined }
     if (touchHoldMenuTimer) { clearTimeout(touchHoldMenuTimer); touchHoldMenuTimer = undefined }
+    if (touchHoldDebounceTimer) { clearTimeout(touchHoldDebounceTimer); touchHoldDebounceTimer = undefined }
     if (touchHoldFrame) { cancelAnimationFrame(touchHoldFrame); touchHoldFrame = 0 }
     detachTouchPress?.()
     detachTouchPress = undefined
@@ -61,12 +84,13 @@ export function useWidgetDrag(options: {
     touchHoldNodeId.value = null
     touchHoldShape.value = null
     touchHoldStartMs = 0
+    touchHoldWindowMs = TOUCH_HOLD_WINDOW_MS
     touchHoldReached = false
   }
 
   // 每帧递进按压进度，窗口到期时描边线刚好闭合。
   function tickTouchHold() {
-    touchHoldProgress.value = touchPressProgress(performance.now() - touchHoldStartMs)
+    touchHoldProgress.value = touchPressProgress(performance.now() - touchHoldStartMs, touchHoldWindowMs)
     if (touchHoldProgress.value < 1) touchHoldFrame = requestAnimationFrame(tickTouchHold)
   }
 
@@ -149,33 +173,61 @@ export function useWidgetDrag(options: {
     document.addEventListener('keydown', escape)
   }
 
-  // 触屏按压等待：点按确定时间（描边线闭合）走完前一律不拖动，确定后位移达阈值转为拖动，
-  // 宽限期结束仍未拖动才弹出长按菜单。
+  // 触屏按压等待：大块组件延长判定窗口，前 100ms 防抖静止观察期不展现缩放与描边，位移超出立刻取消。
   function beginTouchHold(event: PointerEvent, node: WidgetNode, element: HTMLElement, bounds: DOMRect) {
     const pid = event.pointerId
     const sx = event.clientX
     const sy = event.clientY
+    let maxDistance = 0
+    let movedBeyond = false
+
+    // 文件夹或大尺寸组件采用收紧判定时长，避开慢速滑动翻页区间。
+    const isBig = node.type === 'folder' || bounds.width > 160 || bounds.height > 120
+    const windowMs = isBig ? TOUCH_HOLD_BIG_WINDOW_MS : TOUCH_HOLD_WINDOW_MS
+    const menuMs = windowMs + TOUCH_HOLD_GRACE_MS
+    touchHoldWindowMs = windowMs
 
     touchGesture.value = true
-    touchHoldNodeId.value = node.id
-    touchHoldShape.value = readTouchHoldShape(element)
     touchHoldStartMs = performance.now()
     touchHoldProgress.value = 0
-    touchHoldFrame = requestAnimationFrame(tickTouchHold)
 
-    // 结束按压等待并放开手势标记：长按过的按压抬手后不再触发点击。
+    // 静止超过防抖期后才展现缩放与描边，杜绝快速翻页时大块闪烁。
+    function showVisual() {
+      if (movedBeyond) return
+      touchHoldNodeId.value = node.id
+      touchHoldShape.value = readTouchHoldShape(element)
+      touchHoldFrame = requestAnimationFrame(tickTouchHold)
+    }
+
+    // 结束按压等待并放开手势标记：曾发生位移或长按成功的抬手均拦截点击。
     function finish() {
-      if (touchHoldReached) suppressClick = true
+      if (touchHoldDebounceTimer) { clearTimeout(touchHoldDebounceTimer); touchHoldDebounceTimer = undefined }
+      if (touchHoldReached || movedBeyond) markSuppressClick()
       cancelTouchHold()
       touchGesture.value = false
     }
+
     // 抬手或系统取消都放弃本次按压。
     function onPressEnd(ev: PointerEvent) { if (ev.pointerId === pid) finish() }
-    // 等待期移动：点按确定时间走完后位移达到阈值才转为拖动会话，长按菜单不再参与。
+
+    // 等待期移动：垂直位移超过 5px 或总位移超过 6px 立刻取消长按判定并拦截随后的误点击。
     function onPressMove(ev: PointerEvent) {
       if (ev.pointerId !== pid) return
-      const distance = Math.hypot(ev.clientX - sx, ev.clientY - sy)
-      if (resolveTouchPress(distance, performance.now() - touchHoldStartMs) !== 'drag') return
+      const dx = ev.clientX - sx
+      const dy = ev.clientY - sy
+      const distance = Math.hypot(dx, dy)
+      if (distance > maxDistance) maxDistance = distance
+      if (isTouchMoveExceeded(dx, dy)) movedBeyond = true
+      if (movedBeyond) {
+        finish()
+        return
+      }
+      const outcome = resolveTouchPress(distance, performance.now() - touchHoldStartMs, menuMs, TOUCH_DRAG_THRESHOLD, windowMs)
+      if (outcome === 'cancel') {
+        finish()
+        return
+      }
+      if (outcome !== 'drag') return
       cancelTouchHold()
       session.value = { id: node.id, pointer: pid, startX: sx, startY: sy,
         offsetX: sx - bounds.left, offsetY: sy - bounds.top, dx: 0, dy: 0, active: false, element, pointerType: 'touch' }
@@ -186,17 +238,21 @@ export function useWidgetDrag(options: {
       move(ev)
     }
     detachTouchPress = () => {
+      if (touchHoldDebounceTimer) { clearTimeout(touchHoldDebounceTimer); touchHoldDebounceTimer = undefined }
       document.removeEventListener('pointermove', onPressMove)
       document.removeEventListener('pointerup', onPressEnd)
       document.removeEventListener('pointercancel', onPressEnd)
     }
-    // 等待期监听必须是非被动监听：转成拖动的那一次移动就要拦下默认行为。
     document.addEventListener('pointermove', onPressMove, { passive: false })
     document.addEventListener('pointerup', onPressEnd)
     document.addEventListener('pointercancel', onPressEnd)
 
-    // 描边线闭合后仍留出宽限期，期间起拖依然有效；宽限期结束才把菜单交给外部。
+    // 防抖期内保持静止才开启视觉反馈。
+    touchHoldDebounceTimer = setTimeout(showVisual, TOUCH_HOLD_DEBOUNCE_MS)
+
+    // 确定时间走完仍留宽限期，超时未起拖弹出长按菜单。
     touchHoldTimer = setTimeout(() => {
+      if (movedBeyond || maxDistance > TOUCH_PICK_TOLERANCE) { finish(); return }
       if (touchHoldFrame) { cancelAnimationFrame(touchHoldFrame); touchHoldFrame = 0 }
       touchHoldProgress.value = 1
       touchHoldReached = true
@@ -205,7 +261,7 @@ export function useWidgetDrag(options: {
         touchHoldShape.value = null
         options.onTouchHoldMenu?.(node, sx, sy)
       }, TOUCH_HOLD_GRACE_MS)
-    }, TOUCH_HOLD_WINDOW_MS)
+    }, windowMs)
   }
 
   // 在单个动画帧内计算最新落点、目标动作和自动滚动。

@@ -2,8 +2,11 @@ import { onMounted, onUnmounted, ref, type Ref } from 'vue'
 import { arrangeNodes, BREAKPOINTS, newWidget, type Bookmark, type Breakpoint, type Placement, type WidgetNode } from '@laull-home/shared'
 import {
   TOUCH_DRAG_THRESHOLD,
+  TOUCH_HOLD_DEBOUNCE_MS,
   TOUCH_HOLD_WINDOW_MS,
+  TOUCH_PICK_TOLERANCE,
   TOUCH_SOURCE_LEAVE_BUFFER,
+  isTouchMoveExceeded,
   resolveGridCell,
   resolveTouchPick,
   touchLeftSource,
@@ -78,11 +81,22 @@ export function useFolderItemTouchDrag(options: {
   let pickedUp = false
   // 拾起手势结束后屏蔽紧随其后的点击，避免误打开书签或误开文件夹。
   let suppressClick = false
+  let suppressClickTimer: ReturnType<typeof setTimeout> | undefined
   let pendingPoint: { x: number; y: number } | null = null
   let holdTimer: ReturnType<typeof setTimeout> | undefined
+  let debounceTimer: ReturnType<typeof setTimeout> | undefined
+  let maxDistance = 0
+  let movedBeyond = false
   let moveFrame = 0
   let pressFrame = 0
   let detach: (() => void) | undefined
+
+  // 标记屏蔽紧随其后的点击，并在超时后自动复位。
+  function markSuppressClick() {
+    suppressClick = true
+    if (suppressClickTimer) clearTimeout(suppressClickTimer)
+    suppressClickTimer = setTimeout(() => { suppressClick = false }, 350)
+  }
 
   // 收回按下的描边线：拾起、让位滚动或手势结束时都要清掉。
   function clearPress() {
@@ -94,6 +108,7 @@ export function useFolderItemTouchDrag(options: {
   // 清理手势状态与图标上的长按、拾起样式。
   function reset() {
     if (holdTimer) { clearTimeout(holdTimer); holdTimer = undefined }
+    if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = undefined }
     if (moveFrame) { cancelAnimationFrame(moveFrame); moveFrame = 0 }
     clearPress()
     detach?.()
@@ -216,9 +231,22 @@ export function useFolderItemTouchDrag(options: {
   // 指针移动：先判定滚动与拾起，拾起后把坐标合并到下一帧刷新悬浮层。
   function move(event: PointerEvent) {
     if (event.pointerId !== pointer) return
-    const distance = Math.hypot(event.clientX - startX, event.clientY - startY)
+    const dx = event.clientX - startX
+    const dy = event.clientY - startY
+    const distance = Math.hypot(dx, dy)
+    if (distance > maxDistance) maxDistance = distance
+    if (isTouchMoveExceeded(dx, dy)) movedBeyond = true
+    if (movedBeyond) {
+      markSuppressClick()
+      reset()
+      return
+    }
     const outcome = resolveTouchPick(distance, performance.now() - startMs, source?.mode ?? 'direct')
-    if (outcome === 'scroll') { reset(); return }
+    if (outcome === 'scroll') {
+      markSuppressClick()
+      reset()
+      return
+    }
     if (outcome === 'pick' && !pickedUp) pickUp()
     if (!pickedUp) return
     event.preventDefault()
@@ -255,8 +283,8 @@ export function useFolderItemTouchDrag(options: {
     const held = armed || pickedUp
     settleSource()
     reset()
-    // 进入长按或拾起状态后的抬手不再触发图标点击。
-    suppressClick = held
+    // 进入长按、拾起状态或滑动翻页后的抬手不再触发图标点击。
+    if (held || movedBeyond) markSuppressClick()
     if (drop && target && current) options.commit(target, current.folderWidgetId, drop)
     else if (wantsMenu && element) {
       // 复用条目上已有的右键菜单处理，保持触屏可达。
@@ -294,11 +322,21 @@ export function useFolderItemTouchDrag(options: {
     startX = event.clientX
     startY = event.clientY
     startMs = performance.now()
-    item.classList.add(preset.holdClass)
-    pressLine.value = readPressLine(item)
-    pressProgress.value = 0
-    if (pressLine.value) pressFrame = requestAnimationFrame(tickPress)
+    maxDistance = 0
+    movedBeyond = false
+
+    // 防抖期内保持静止才开启图标高亮与描边，避免划屏翻页时图标闪烁。
+    debounceTimer = setTimeout(() => {
+      debounceTimer = undefined
+      if (movedBeyond || !itemElement || !source) return
+      itemElement.classList.add(source.holdClass)
+      pressLine.value = readPressLine(itemElement)
+      pressProgress.value = 0
+      if (pressLine.value) pressFrame = requestAnimationFrame(tickPress)
+    }, TOUCH_HOLD_DEBOUNCE_MS)
+
     detach = () => {
+      if (debounceTimer) { clearTimeout(debounceTimer); debounceTimer = undefined }
       document.removeEventListener('pointermove', move)
       document.removeEventListener('pointerup', end)
       document.removeEventListener('pointercancel', abort)
@@ -311,7 +349,11 @@ export function useFolderItemTouchDrag(options: {
     document.addEventListener('contextmenu', blockNativeMenu, true)
     document.addEventListener('touchmove', blockScroll, { passive: false })
     // 点按确定时间走完后进入就绪状态：此前位移不拾起，此后任何位移都直接拖动。
-    holdTimer = setTimeout(() => { holdTimer = undefined; armed = true }, TOUCH_HOLD_WINDOW_MS)
+    holdTimer = setTimeout(() => {
+      holdTimer = undefined
+      if (movedBeyond || maxDistance > TOUCH_PICK_TOLERANCE) { reset(); return }
+      armed = true
+    }, TOUCH_HOLD_WINDOW_MS)
     return kind === 'widget'
   }
 
