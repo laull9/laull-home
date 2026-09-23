@@ -135,4 +135,30 @@ describe('PWA Service Worker 缓存排除安全红线验证', () => {
       'media',
     )).toBe('https://example.com/api/v1/icons/a.png?size=64')
   })
+
+  // 开发服务器内部路径、HMR 轮询与单文件样式模块绝不能被 Service Worker 缓存，防止造成模块 MIME 类型错乱。
+  test('Vite 开发特征请求与动态样式模块必须直接透传 bypass', () => {
+    const devRequests = [
+      'https://example.com/_nuxt/@fs/Users/laull/Projects/Ts/laull-home/node_modules/nuxt/dist/app/entry.js?v=61c23011',
+      'https://example.com/_nuxt/@vite/client',
+      'https://example.com/_nuxt/@id/virtual:nuxt:.nuxt%2Fcss.mjs',
+      'https://example.com/_nuxt/__vite_ping',
+      'https://example.com/_nuxt/components/desktop/DesktopCanvas.vue?vue&type=style&index=0&scoped=f524b238&lang.css',
+      'https://example.com/_nuxt/app.vue?vue&type=style&index=0&lang.css',
+      'https://example.com/_nuxt/pages/index.vue?t=1685504873151',
+    ]
+    for (const url of devRequests) {
+      expect(swModule.shouldBypassCache({ method: 'GET', url })).toBe(true)
+      expect(swModule.getCachePolicy?.({ method: 'GET', url })).toBe('bypass')
+    }
+  })
+
+  // 客户端插件源码规范：必须在开发环境主动注销 Service Worker 并清理已有缓存，杜绝残留缓存导致白屏。
+  test('PWA 客户端插件源码中必须包含开发环境禁用与清理逻辑', () => {
+    const pluginPath = join(__dirname, '../../web/app/plugins/pwa.client.ts')
+    const pluginCode = readFileSync(pluginPath, 'utf-8')
+    expect(pluginCode).toContain('import.meta.dev')
+    expect(pluginCode).toContain('unregister')
+    expect(pluginCode).toContain('caches.delete')
+  })
 })

@@ -15,6 +15,16 @@ function getCachePolicy(request) {
   try { url = new URL(request.url) } catch { return 'bypass' }
   const pathname = url.pathname.toLowerCase()
   const search = url.search.toLowerCase()
+  // Vite 开发服务器与 HMR 内部请求一律透传，防止缓存导致 MIME 类型错乱。
+  if (
+    pathname.includes('/@vite/') ||
+    pathname.includes('/@fs/') ||
+    pathname.includes('/@id/') ||
+    pathname.includes('/__vite_ping') ||
+    search.includes('vue&type=style') ||
+    search.includes('v=') ||
+    search.includes('t=')
+  ) return 'bypass'
 
   if (pathname.startsWith('/api/v1/auth')) return 'bypass'
   if (pathname.includes('privacy') || search.includes('privacy')) return 'bypass'
@@ -127,6 +137,13 @@ async function staleWhileRevalidate(request, event) {
     return response
   }).catch(() => null)
   if (cached) {
+    const cachedType = cached.headers.get('content-type')?.toLowerCase() ?? ''
+    const accept = request.headers.get('accept')?.toLowerCase() ?? ''
+    // 脚本模块请求绝不能返回样式表缓存，遇到类型冲突立即回源并替换。
+    if (cachedType.includes('text/css') && !accept.includes('text/css') && (request.destination === 'script' || request.url.includes('.js'))) {
+      const fresh = await update
+      if (fresh && (fresh.headers.get('content-type')?.toLowerCase() ?? '').includes('javascript')) return fresh
+    }
     event.waitUntil(update)
     return cached
   }

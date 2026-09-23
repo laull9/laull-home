@@ -1,5 +1,6 @@
 import { ref, computed, onUnmounted, type Ref } from 'vue'
 import { arrangeNodes, BREAKPOINTS, snapGridCoordinate, type WidgetNode, type Breakpoint, type Placement } from '@laull-home/shared'
+import { TOUCH_DRAG_THRESHOLD, TOUCH_HOLD_GRACE_MS, TOUCH_HOLD_WINDOW_MS, resolveTouchPress, touchPressLine, touchPressProgress, type TouchPressLine } from '../utils/touchGesture'
 
 // 拖动状态保留抓取偏移，组件跟随指针而不跳到左上角。
 interface DragSession {
@@ -20,17 +21,65 @@ export function useWidgetDrag(options: {
   acceptsTarget: (sourceId: string, targetId: string) => boolean
   hoverDelay?: number
   edgeThreshold?: number
+  // 触屏按压窗口内没有产生有效拖动时，通知外部按按下点弹出右键菜单。
+  onTouchHoldMenu?: (node: WidgetNode, x: number, y: number) => void
 }) {
   const session = ref<DragSession | null>(null)
   const preview = ref<Placement | null>(null)
   const hoverFolderId = ref<string | null>(null)
   const folderAction = ref<'absorb' | 'displace' | null>(null)
   const hoverTargetId = ref<string | null>(null)
+  // 触屏按压进度（0~1），驱动外框描边线的自绘动画。
+  const touchHoldProgress = ref(0)
+  // 触屏按压等待中的组件标识。
+  const touchHoldNodeId = ref<string | null>(null)
+  // 触屏按压描边线的绘制几何。
+  const touchHoldShape = ref<TouchPressLine | null>(null)
+  // 触屏手势进行中，用于屏蔽浏览器原生长按菜单与拖动入口相互抢占。
+  const touchGesture = ref(false)
   let suppressClick = false
   let edgeHoverTimer: ReturnType<typeof setTimeout> | undefined
   let edgeHoverTargetId: string | null = null
   let pendingMove: PendingMove | null = null
   let moveFrame = 0
+  // 触屏按压计时器、宽限期菜单计时器、动画帧标识与等待期监听清理函数。
+  let touchHoldTimer: ReturnType<typeof setTimeout> | undefined
+  let touchHoldMenuTimer: ReturnType<typeof setTimeout> | undefined
+  let touchHoldFrame = 0
+  let touchHoldStartMs = 0
+  let touchHoldReached = false
+  let detachTouchPress: (() => void) | undefined
+
+  // 结束触屏按压等待：清理计时器、动画进度、几何参数与等待期监听。
+  function cancelTouchHold() {
+    if (touchHoldTimer) { clearTimeout(touchHoldTimer); touchHoldTimer = undefined }
+    if (touchHoldMenuTimer) { clearTimeout(touchHoldMenuTimer); touchHoldMenuTimer = undefined }
+    if (touchHoldFrame) { cancelAnimationFrame(touchHoldFrame); touchHoldFrame = 0 }
+    detachTouchPress?.()
+    detachTouchPress = undefined
+    touchHoldProgress.value = 0
+    touchHoldNodeId.value = null
+    touchHoldShape.value = null
+    touchHoldStartMs = 0
+    touchHoldReached = false
+  }
+
+  // 每帧递进按压进度，窗口到期时描边线刚好闭合。
+  function tickTouchHold() {
+    touchHoldProgress.value = touchPressProgress(performance.now() - touchHoldStartMs)
+    if (touchHoldProgress.value < 1) touchHoldFrame = requestAnimationFrame(tickTouchHold)
+  }
+
+  // 读取按压描边线所需的组件尺寸与外框圆角。
+  function readTouchHoldShape(element: HTMLElement): TouchPressLine | null {
+    const width = element.clientWidth
+    const height = element.clientHeight
+    if (width <= 0 || height <= 0) return null
+    const raw = getComputedStyle(element).borderTopLeftRadius
+    // 圆角支持百分比写法，按短边换算成像素后再参与描边线几何。
+    const radius = raw.endsWith('%') ? Math.min(width, height) * parseFloat(raw) / 100 : parseFloat(raw) || 0
+    return touchPressLine(width, height, radius)
+  }
 
   // 清除边缘悬停计时器。
   function clearEdgeTimer() {
@@ -70,10 +119,13 @@ export function useWidgetDrag(options: {
   }
 
   // 只有超过阈值的移动才成为拖动，轻点继续执行原有点击。
+  // 触屏先把拖动入口与长按菜单放进同一个判定窗口，鼠标与触控笔保持原有行为。
   function start(event: PointerEvent, node: WidgetNode) {
     if (!options.enabled(node) || (event.pointerType === 'mouse' && event.button !== 0) || !event.isPrimary || session.value) return
     suppressClick = false
     clearEdgeTimer()
+    cancelTouchHold()
+    touchGesture.value = false
     hoverFolderId.value = null
     folderAction.value = null
     hoverTargetId.value = null
@@ -81,12 +133,79 @@ export function useWidgetDrag(options: {
     if (target.closest('input,textarea,select,[contenteditable],.widget-tools,.stack-controls,[data-folder-item]')) return
     const element = event.currentTarget as HTMLElement
     const bounds = element.getBoundingClientRect()
+
+    // 触屏：先进入按压等待，点按确定时间走完并出现有效拖动才转为拖动。
+    if (event.pointerType === 'touch') {
+      beginTouchHold(event, node, element, bounds)
+      return
+    }
+
+    // 桌面端（鼠标、触控笔）：按下即进入拖动准备，行为不变。
     session.value = { id: node.id, pointer: event.pointerId, startX: event.clientX, startY: event.clientY,
       offsetX: event.clientX - bounds.left, offsetY: event.clientY - bounds.top, dx: 0, dy: 0, active: false, element, pointerType: event.pointerType }
     document.addEventListener('pointermove', move, { passive: false })
     document.addEventListener('pointerup', end)
     document.addEventListener('pointercancel', cancel)
     document.addEventListener('keydown', escape)
+  }
+
+  // 触屏按压等待：点按确定时间（描边线闭合）走完前一律不拖动，确定后位移达阈值转为拖动，
+  // 宽限期结束仍未拖动才弹出长按菜单。
+  function beginTouchHold(event: PointerEvent, node: WidgetNode, element: HTMLElement, bounds: DOMRect) {
+    const pid = event.pointerId
+    const sx = event.clientX
+    const sy = event.clientY
+
+    touchGesture.value = true
+    touchHoldNodeId.value = node.id
+    touchHoldShape.value = readTouchHoldShape(element)
+    touchHoldStartMs = performance.now()
+    touchHoldProgress.value = 0
+    touchHoldFrame = requestAnimationFrame(tickTouchHold)
+
+    // 结束按压等待并放开手势标记：长按过的按压抬手后不再触发点击。
+    function finish() {
+      if (touchHoldReached) suppressClick = true
+      cancelTouchHold()
+      touchGesture.value = false
+    }
+    // 抬手或系统取消都放弃本次按压。
+    function onPressEnd(ev: PointerEvent) { if (ev.pointerId === pid) finish() }
+    // 等待期移动：点按确定时间走完后位移达到阈值才转为拖动会话，长按菜单不再参与。
+    function onPressMove(ev: PointerEvent) {
+      if (ev.pointerId !== pid) return
+      const distance = Math.hypot(ev.clientX - sx, ev.clientY - sy)
+      if (resolveTouchPress(distance, performance.now() - touchHoldStartMs) !== 'drag') return
+      cancelTouchHold()
+      session.value = { id: node.id, pointer: pid, startX: sx, startY: sy,
+        offsetX: sx - bounds.left, offsetY: sy - bounds.top, dx: 0, dy: 0, active: false, element, pointerType: 'touch' }
+      document.addEventListener('pointermove', move, { passive: false })
+      document.addEventListener('pointerup', end)
+      document.addEventListener('pointercancel', cancel)
+      try { navigator?.vibrate?.(10) } catch { /* 无振动权限时忽略。 */ }
+      move(ev)
+    }
+    detachTouchPress = () => {
+      document.removeEventListener('pointermove', onPressMove)
+      document.removeEventListener('pointerup', onPressEnd)
+      document.removeEventListener('pointercancel', onPressEnd)
+    }
+    // 等待期监听必须是非被动监听：转成拖动的那一次移动就要拦下默认行为。
+    document.addEventListener('pointermove', onPressMove, { passive: false })
+    document.addEventListener('pointerup', onPressEnd)
+    document.addEventListener('pointercancel', onPressEnd)
+
+    // 描边线闭合后仍留出宽限期，期间起拖依然有效；宽限期结束才把菜单交给外部。
+    touchHoldTimer = setTimeout(() => {
+      if (touchHoldFrame) { cancelAnimationFrame(touchHoldFrame); touchHoldFrame = 0 }
+      touchHoldProgress.value = 1
+      touchHoldReached = true
+      touchHoldMenuTimer = setTimeout(() => {
+        touchHoldNodeId.value = null
+        touchHoldShape.value = null
+        options.onTouchHoldMenu?.(node, sx, sy)
+      }, TOUCH_HOLD_GRACE_MS)
+    }, TOUCH_HOLD_WINDOW_MS)
   }
 
   // 在单个动画帧内计算最新落点、目标动作和自动滚动。
@@ -203,7 +322,7 @@ export function useWidgetDrag(options: {
     if (!current || event.pointerId !== current.pointer) return
     const dx = event.clientX - current.startX
     const dy = event.clientY - current.startY
-    const threshold = current.pointerType === 'touch' ? 10 : 5
+    const threshold = current.pointerType === 'touch' ? TOUCH_DRAG_THRESHOLD : 5
     if (!current.active && Math.hypot(dx, dy) < threshold) return
     current.active = true
     if (!current.element.hasPointerCapture(event.pointerId)) current.element.setPointerCapture(event.pointerId)
@@ -241,6 +360,8 @@ export function useWidgetDrag(options: {
 
   // 取消拖动不会修改草稿。
   function cancel() {
+    cancelTouchHold()
+    touchGesture.value = false
     clearEdgeTimer()
     if (moveFrame) { cancelAnimationFrame(moveFrame); moveFrame = 0 }
     pendingMove = null
@@ -277,5 +398,5 @@ export function useWidgetDrag(options: {
     return current?.active && current.id === id ? { transform: 'translate3d(' + current.dx + 'px,' + current.dy + 'px,0)', zIndex: 80 } : {}
   }
   onUnmounted(cancel)
-  return { start, cancel, click, transform, placement, preview, draggingId, hoverFolderId, hoverTargetId, folderAction, vector }
+  return { start, cancel, click, transform, placement, preview, draggingId, hoverFolderId, hoverTargetId, folderAction, vector, touchHoldProgress, touchHoldNodeId, touchHoldShape, touchGesture }
 }

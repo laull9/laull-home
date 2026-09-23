@@ -1,19 +1,22 @@
 <script setup lang="ts">
 import { onBeforeRouteLeave } from 'vue-router'
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
-import { arrangeNodes, BREAKPOINTS, isWidget, scopedCss, type WidgetNode, type Bookmark, type BookmarkGroup, type Breakpoint, type Placement } from '@laull-home/shared'
+import { arrangeNodes, BREAKPOINTS, isWidget, scopedCss, type WidgetNode, type Bookmark, type BookmarkGroup, type Breakpoint } from '@laull-home/shared'
 import { useWidgetDrag } from '../../composables/useWidgetDrag'
 import { useGridFlip } from '../../composables/useGridFlip'
 import { useDesktop } from '../../composables/useDesktop'
 import { useFolderItemDrag } from '../../composables/useFolderItemDrag'
+import { useFolderItemTouchDrag } from '../../composables/useFolderItemTouchDrag'
 import { useCanvasContextMenu } from '../../composables/useCanvasContextMenu'
 import AlertModal from '../AlertModal.vue'
+import FolderItemTouchOverlay from './FolderItemTouchOverlay.vue'
 import WidgetContent from './WidgetContent.vue'
 import WidgetEditor from './WidgetEditor.vue'
 import ComponentTree from './ComponentTree.vue'
 import { useCanvasLibraryDrop } from '../../composables/useCanvasLibraryDrop'
 import { useCanvasShortcuts } from '../../composables/useCanvasShortcuts'
 import { useCanvasWidgetAdd } from '../../composables/useCanvasWidgetAdd'
+import { useCanvasDropCommit } from '../../composables/useCanvasDropCommit'
 
 // 外部双向同步断点与叠放模式。
 const selectedBreakpoint = defineModel<'auto' | Breakpoint>('selectedBreakpoint', { default: 'auto' })
@@ -56,6 +59,26 @@ const { handleAddWidget, handleEditorCopy, ensureFoldersIndependent, addNavigati
   setError: msg => { error.value = msg },
 })
 const canvas = ref<HTMLElement | null>(null)
+// 触屏长按文件夹内图标拖出到画布，与原生拖放共用同一套移出逻辑。
+const folderItemDrag = useFolderItemTouchDrag({
+  canvas,
+  breakpoint,
+  nodes: () => data.value?.nodes ?? [],
+  bookmarks: () => props.bookmarks,
+  enabled: () => !saving.value && (props.editing || props.allowDragWithoutEdit),
+  commit: (bookmark, folderWidgetId, placement) => {
+    void handleDropToCanvas(`folder-item:${folderWidgetId}:${bookmark.groupId || ''}:${bookmark.id}`, placement)
+  },
+})
+// 触屏拾起的文件夹图标悬浮层与其落点预览。
+const folderGhost = computed(() => folderItemDrag.ghost.value)
+const folderItemPreview = computed(() => folderItemDrag.preview.value)
+// 被按下图标的按压描边线：与组件按压同一套方框/圆形动画。
+const folderPressLine = computed(() => folderItemDrag.pressLine.value)
+// 拖动产生的无效点击在捕获阶段屏蔽。
+function suppressTrailingClick(event: MouseEvent) {
+  drag.click(event)
+}
 // 实时组件树面板显隐状态。
 const showComponentTree = ref(false)
 // 进入编辑模式记录快照，退出编辑模式清空快照并收起组件树。
@@ -79,7 +102,7 @@ const activeStacks = ref<Record<string, number>>({})
 let observer: ResizeObserver | undefined, touchStart = 0
 // 快捷菜单只作用于已载入且已授权的画布。
 const { user } = useAuth()
-const { contextPosition, contextItems, openContext, contextAction } = useCanvasContextMenu({
+const { contextPosition, contextItems, openContext, openContextAt, contextAction } = useCanvasContextMenu({
   user, data, loading, saving,
   editing: () => props.editing,
   bookmarks: () => props.bookmarks,
@@ -166,77 +189,27 @@ function cycle(key: string, direction = 1) {
   const count = data.value?.nodes.filter(node => (node.stackId || node.id) === key).length ?? 1
   activeStacks.value[key] = ((activeStacks.value[key] ?? 0) + direction + count) % count
 }
-// 两类拖动统一提交布局、叠放或书签合并/归组。
-async function commitDrop(id: string, p: Placement, targetId?: string) {
-  if (saving.value || !data.value) return
-  const isDraggableType = (t?: string) => t === 'bookmark' || t === 'folder'
-  if (!props.editing && (!props.allowDragWithoutEdit || !isDraggableType(data.value.nodes.find(item => item.id === id)?.type))) return
-  const node = data.value.nodes.find(item => item.id === id)
-  const target = data.value.nodes.find(item => item.id === targetId && item.id !== id)
-  if (!node) return
-  if (props.editing && !stackMode.value && target && node.type === 'bookmark' && target.type === 'bookmark') {
-    // 两个胶囊信息卡相遇直接在当前行并排变为 1x2，不新建文件夹。
-    if (node.variant === 'pill' && target.variant === 'pill') {
-      const bp = breakpoint.value
-      const targetP = positions.value.get(target.id) ?? target.layouts[bp] ?? target.layouts.desktop
-      const columns = BREAKPOINTS[bp]
-      let targetX = targetP.x
-      let sourceX = targetX + 1
-      if (sourceX >= columns) {
-        targetX = Math.max(0, columns - 2)
-        sourceX = targetX + 1
-      }
-      const tLayout: Placement = { x: targetX, y: targetP.y, w: 1, h: 1, pinned: true }
-      const sLayout: Placement = { x: sourceX, y: targetP.y, w: 1, h: 1, pinned: true }
-      update({ ...target, layouts: { ...target.layouts, desktop: { ...tLayout }, [bp]: { ...tLayout } } })
-      update({ ...node, layouts: { ...node.layouts, desktop: { ...sLayout }, [bp]: { ...sLayout } } })
-      dirty.value = true
-      return
-    }
-    if (await merge(node.id, target.id)) emit('refresh')
-    return
-  }
-  if (!stackMode.value && target && node.type === 'bookmark' && target.type === 'folder') {
-    let groupId = target.referenceId
-    remove(node.id)
-    if (!groupId) {
-      const created = await createGroup({ spaceId: props.spaceId, name: target.title || '新建文件夹' })
-      if (created) {
-        groupId = created.id
-        update({ ...target, referenceId: groupId })
-      }
-    }
-    if (groupId && node.referenceId) {
-      try {
-        await updateBookmark(node.referenceId, props.spaceId, { groupId })
-        if (!props.editing) await save()
-        emit('refresh')
-      } catch (cause) {
-        update(node)
-        error.value = cause instanceof Error ? cause.message : '移入文件夹失败'
-      }
-    }
-    return
-  }
-  if (props.editing && stackMode.value && target) {
-    const sourceSize = positions.value.get(node.id)!, targetSize = positions.value.get(target.id)!
-    if (sourceSize.w !== targetSize.w || sourceSize.h !== targetSize.h) { error.value = '叠放需要相同尺寸'; return }
-    const stackId = target.stackId || crypto.randomUUID()
-    update({ ...target, stackId })
-    update({ ...node, stackId, layouts: JSON.parse(JSON.stringify(target.layouts)) })
-    return
-  }
-  const bp = breakpoint.value
-  const activeWithP = { ...node, stackId: '', layouts: { ...node.layouts, [bp]: p } }
-  const allNodes = data.value.nodes
-  const reordered = [activeWithP, ...allNodes.filter(n => n.id !== id)]
-  const arrangedMap = arrangeNodes(reordered, bp, drag.vector.value)
-  for (const item of allNodes) {
-    const finalP = arrangedMap.get(item.id)
-    if (finalP) update({ ...item, ...(item.id === id ? { stackId: '' } : {}), layouts: { ...item.layouts, [bp]: { ...finalP } } })
-  }
-  if (!props.editing) void save()
-}
+// 组件放置与叠放提交逻辑。
+const { commitDrop } = useCanvasDropCommit({
+  data,
+  saving,
+  dirty,
+  breakpoint,
+  positions,
+  editing: () => props.editing,
+  allowDragWithoutEdit: () => props.allowDragWithoutEdit,
+  stackMode: () => stackMode.value,
+  spaceId: () => props.spaceId,
+  vector: () => drag.vector.value,
+  update,
+  remove,
+  merge,
+  createGroup,
+  updateBookmark,
+  save,
+  emitRefresh: () => emit('refresh'),
+  setError: msg => { error.value = msg },
+})
 // 编辑模式允许拖动全部组件，常态只开放书签和文件夹。
 function canDrag(node?: WidgetNode) {
   return !saving.value && (props.editing || (props.allowDragWithoutEdit && (node?.type === 'bookmark' || node?.type === 'folder')))
@@ -251,7 +224,19 @@ const drag = useWidgetDrag({ canvas, nodes: () => data.value?.nodes ?? [], break
     if (!props.editing) return props.allowDragWithoutEdit && source.type === 'bookmark' && target.type === 'folder'
     return stackMode.value || (source.type === 'bookmark' && (target.type === 'bookmark' || target.type === 'folder'))
   },
-  commit: (id, position, targetId) => { void commitDrop(id, position, targetId) } })
+  commit: (id, position, targetId) => { void commitDrop(id, position, targetId) },
+  // 触屏长按未拖动时按按下点弹出菜单，与拖动入口共用同一个判定窗口。
+  onTouchHoldMenu: (node, x, y) => openContextAt(x, y, node) })
+// 触屏按压描边线的绘制参数：进度换算成描边长度，线从左上角顺时针闭合。
+const pressLine = computed(() => {
+  const shape = drag.touchHoldShape.value
+  return shape ? { ...shape, offset: shape.perimeter * (1 - drag.touchHoldProgress.value) } : null
+})
+// 触屏按压期间由手势判定接管右键菜单，避免原生长按菜单与拖动入口抢占。
+function onWidgetContextMenu(event: MouseEvent, node: WidgetNode) {
+  if (drag.touchGesture.value) { event.preventDefault(); event.stopPropagation(); return }
+  openContext(event, node)
+}
 // 拖拽时将当前组件置首位优先排布，吸附文件夹或无预览时不产生挤位避让。
 const previewPositions = computed(() => {
   if (drag.folderAction.value === 'absorb' || !drag.preview.value || !drag.draggingId.value) return positions.value
@@ -300,6 +285,8 @@ const { libraryPreview, nativeHoverFolderId, libraryOver, libraryLeave, drop } =
   handleDropToFolder,
   handleDropToCanvas,
 })
+// 画布落点预览：组件拖动、外部拖放与文件夹图标拖出共用同一个网格框。
+const dropPreview = computed(() => drag.preview.value ?? libraryPreview.value ?? folderItemPreview.value)
 // 键盘与移动端可在配置浮层修改位置。
 function pin(node: WidgetNode) {
   const p = positions.value.get(node.id)!
@@ -403,8 +390,8 @@ onUnmounted(() => {
     <!-- 实时悬浮组件树抽屉 -->
     <ComponentTree v-if="editing || showComponentTree" :open="showComponentTree" :templates="data?.templates" :groups="groups" :bookmarks="bookmarks" @add="handleAddWidget" @add-template="add($event.type, $event)" @delete-template="deleteTemplate" @import-widget="importWidget" @close="showComponentTree = false" />
     <!-- 主桌面画布网格 -->
-    <div ref="canvas" class="desktop-grid" :class="{ editing, 'is-dragging': drag.draggingId.value }" :style="{ '--columns': BREAKPOINTS[breakpoint] }" @dragover="libraryOver" @dragleave="libraryLeave" @drop="drop($event)" @click.capture="drag.click">
-      <div v-if="drag.preview.value || libraryPreview" class="drop-preview" :style="{ gridColumn: ((drag.preview.value || libraryPreview)!.x + 1) + ' / span ' + (drag.preview.value || libraryPreview)!.w, gridRow: ((drag.preview.value || libraryPreview)!.y + 1) + ' / span ' + (drag.preview.value || libraryPreview)!.h }" aria-hidden="true" />
+    <div ref="canvas" class="desktop-grid" :class="{ editing, 'is-dragging': drag.draggingId.value }" :style="{ '--columns': BREAKPOINTS[breakpoint] }" @dragover="libraryOver" @dragleave="libraryLeave" @drop="drop($event)" @click.capture="suppressTrailingClick">
+      <div v-if="dropPreview" class="drop-preview" :style="{ gridColumn: (dropPreview.x + 1) + ' / span ' + dropPreview.w, gridRow: (dropPreview.y + 1) + ' / span ' + dropPreview.h }" aria-hidden="true" />
       <article
         v-for="entry in visibleNodes"
         :id="'widget-'+entry.node.id"
@@ -418,12 +405,17 @@ onUnmounted(() => {
           'dragging-widget': drag.draggingId.value === entry.node.id,
           'drop-action-target': drag.hoverTargetId.value === entry.node.id,
           'folder-absorb-target': drag.hoverFolderId.value === entry.node.id || nativeHoverFolderId === entry.node.id,
+          'touch-holding': drag.touchHoldNodeId.value === entry.node.id,
         }"
         :style="style(entry.node)"
         @pointerdown="drag.start($event, entry.node)"
         @dragstart.prevent
-        @contextmenu="openContext($event, entry.node)"
+        @contextmenu="onWidgetContextMenu($event, entry.node)"
       >
+        <!-- 触屏按压等待反馈：主题单色描边线沿组件外框自绘为方框或圆形 -->
+        <svg v-if="pressLine && drag.touchHoldNodeId.value === entry.node.id" class="touch-hold-line" :viewBox="pressLine.viewBox" aria-hidden="true">
+          <rect :x="pressLine.x" :y="pressLine.y" :width="pressLine.width" :height="pressLine.height" :rx="pressLine.rx" :stroke-dasharray="pressLine.perimeter" :stroke-dashoffset="pressLine.offset" />
+        </svg>
         <div v-if="editing" class="widget-tools">
           <button type="button" :aria-label="'配置'+entry.node.title" @click="selected = entry.node">配置</button>
           <button type="button" :aria-label="'固定'+entry.node.title" :aria-pressed="positions.get(entry.node.id)?.pinned" @click="pin(entry.node)">{{ positions.get(entry.node.id)?.pinned ? '已固定' : '固定' }}</button>
@@ -437,6 +429,12 @@ onUnmounted(() => {
       </article>
     </div>
     <p v-if="data && !data.nodes.length" class="empty-state">桌面暂无组件<button v-if="editing" type="button" @click="showComponentTree = true">打开组件树</button></p>
+    <!-- 触屏手势浮层：挂到 body，否则会被应用根节点的层叠上下文压在文件夹遮罩之下 -->
+    <FolderItemTouchOverlay
+      :folder-press-line="folderPressLine"
+      :press-progress="folderItemDrag.pressProgress.value"
+      :folder-ghost="folderGhost"
+    />
     <ContextMenu :position="contextPosition" :items="contextItems" @close="contextPosition = null" @action="contextAction" />
     <WidgetEditor :node="selected" :breakpoint="breakpoint" :bookmarks="bookmarks" :groups="groups" @close="selected = null" @save="handleEditorSave" @copy="handleEditorCopy" @template="handleEditorTemplate" @remove="handleEditorRemove" />
     <!-- 重新读取确认弹窗 -->
@@ -452,7 +450,7 @@ onUnmounted(() => {
 .canvas-loading { background: color-mix(in srgb, var(--lh-surface, #fff) 85%, transparent); border: 1px solid var(--lh-border); color: var(--lh-text-secondary); }
 .desktop-grid { position: relative; display: grid; grid-template-columns: repeat(var(--columns), minmax(0, 1fr)); grid-auto-rows: 96px; gap: var(--lh-grid-gap, 16px); min-height: 220px; width: 100%; }
 .widget { position: relative; min-width: 0; container-type: inline-size; padding: var(--widget-padding, 12px); border: var(--widget-border, 1px) solid var(--lh-border); border-radius: var(--widget-radius, var(--lh-radius-lg)); background: color-mix(in srgb, var(--widget-surface, var(--lh-surface-solid, white)) var(--widget-opacity, var(--lh-surface-opacity, 92%)), transparent); color: var(--widget-text, var(--lh-text)); backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); -webkit-backdrop-filter: blur(var(--widget-blur, var(--lh-blur))) saturate(160%); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-card); transition: box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), background-color 0.2s, color 0.2s, border-radius 0.2s; }
-.draggable-widget { cursor: grab; touch-action: none; -webkit-user-drag: none; }
+.draggable-widget { cursor: grab; touch-action: none; -webkit-user-drag: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .drop-action-target { outline: 2px solid var(--lh-accent); outline-offset: 2px; transform: scale(.985); transition: transform .12s ease-out, box-shadow .12s ease-out; }
 .folder-absorb-target { outline: 2px solid var(--lh-accent) !important; box-shadow: 0 0 14px color-mix(in srgb, var(--lh-accent) 45%, transparent) !important; }
 :root[data-theme="modern"] :not(.editing) .widget:not(.frameless-widget):not(.search-widget):hover { transform: translateY(-2px); box-shadow: inset 0 1px 1px 0 var(--lh-glass-border, transparent), var(--lh-shadow-hover); transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -471,7 +469,18 @@ onUnmounted(() => {
 .drop-preview { z-index: 0; pointer-events: none; border: 2px solid var(--lh-accent); background: color-mix(in srgb, var(--lh-accent) 12%, transparent); border-radius: var(--lh-radius-lg); }
 .is-dragging::before { content: ''; position: absolute; inset: 0; pointer-events: none; background-image: radial-gradient(circle, var(--lh-border-hover) 1px, transparent 1px); background-size: calc((100% + var(--lh-grid-gap, 16px)) / var(--columns)) 112px; }
 @media (hover: none) { .widget-tools { opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .drop-action-target { transform: none; transition: none; } }
+@media (prefers-reduced-motion: reduce) { .drop-action-target { transform: none; transition: none; } .touch-holding { transform: none !important; } .touch-hold-line { display: none; } .desktop-grid :deep(.folder-item-holding) { transform: none !important; } }
+/* 触屏按压等待反馈：轻微内收配合主题单色描边线，方框或圆形随组件圆角自适应 */
+.touch-holding { transform: scale(0.98); transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); z-index: 10; }
+.touch-hold-line { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 11; }
+.touch-hold-line rect { fill: none; stroke: color-mix(in srgb, var(--lh-text) 55%, transparent); stroke-width: 2; stroke-linecap: round; }
+/* 触屏长按文件夹图标：等待期原地放大即进入可拖动状态，拾起后原位淡出并把图标交给悬浮层 */
+.desktop-grid :deep([data-folder-item]) { -webkit-touch-callout: none; }
+/* 仅触屏禁用原生拖拽，桌面端继续用 HTML5 拖放把图标拖出文件夹 */
+@media (pointer: coarse) { .desktop-grid :deep([data-folder-item]) { -webkit-user-drag: none; } }
+.desktop-grid :deep(.folder-item-holding) { transform: scale(1.08) !important; opacity: 1; filter: drop-shadow(0 6px 14px rgba(0, 0, 0, 0.22)) brightness(1.12); transition: transform 0.18s ease-out, opacity 0.18s ease-out, filter 0.18s ease-out; }
+.desktop-grid :deep(.folder-item-picked) { transform: scale(0.9) !important; opacity: 0.25; transition: transform 0.18s ease-out, opacity 0.18s ease-out; }
+
 .empty-state { text-align: center; padding: 48px 0; }
 .stack-controls { position: absolute; bottom: 3px; right: 6px; display: flex; align-items: center; gap: 5px; font-size: 10px; background: var(--lh-surface); border-radius: 8px; }
 .stack-controls button { padding: 2px 7px; min-height: 24px; }

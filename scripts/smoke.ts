@@ -64,8 +64,34 @@ try {
     if (ready) break
     await Bun.sleep(100)
   }
-  assert(ready, '服务启动超时')
-  assert((await request('/')).status === 200, '首页 SSR 失败')
+  const homeRes = await request('/')
+  assert(homeRes.status === 200, '首页 SSR 失败')
+  const homeHtml = await homeRes.text()
+
+  // 严格校验首页引用的所有脚本与样式表 MIME 类型，防止发生 text/css 误匹配导致白屏。
+  const scripts = Array.from(homeHtml.matchAll(/<script[^>]+src=["']([^"']+)["']/g), m => m[1]!)
+  const links = Array.from(homeHtml.matchAll(/<link[^>]+href=["']([^"']+)["'][^>]*>/g), m => ({ tag: m[0]!, href: m[1]! }))
+  assert(scripts.length > 0, '首页未注入客户端启动脚本')
+  for (const scriptUrl of scripts) {
+    const res = await request(scriptUrl)
+    assert(res.status === 200, `脚本文件加载失败: ${scriptUrl}`)
+    const ct = res.headers.get('content-type')?.toLowerCase() ?? ''
+    assert(ct.includes('javascript') && !ct.includes('text/css') && !ct.includes('text/html'), `脚本 MIME 类型异常(${ct}): ${scriptUrl}`)
+  }
+  for (const { tag, href } of links) {
+    if (tag.includes('rel="stylesheet"')) {
+      const res = await request(href)
+      assert(res.status === 200, `样式表加载失败: ${href}`)
+      const ct = res.headers.get('content-type')?.toLowerCase() ?? ''
+      assert(ct.includes('text/css'), `样式表 MIME 类型异常(${ct}): ${href}`)
+    } else if (tag.includes('as="script"')) {
+      const res = await request(href)
+      assert(res.status === 200, `预加载脚本加载失败: ${href}`)
+      const ct = res.headers.get('content-type')?.toLowerCase() ?? ''
+      assert(ct.includes('javascript') && !ct.includes('text/css'), `预加载脚本 MIME 类型异常(${ct}): ${href}`)
+    }
+  }
+
   assert((await request('/login')).status === 200, '登录页 SSR 失败')
   assert((await request('/api/v1/auth/me')).status === 401, '匿名请求未被拒绝')
   assert((await request('/api/v1/auth/login', 'POST', { username: 'owner', password: 'smoke-password-123' }, undefined, 'https://evil.test')).status === 403, '跨站登录未被拦截')

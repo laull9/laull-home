@@ -35,13 +35,24 @@ export function useCanvasContextMenu(options: {
     { id: 'settings', label: '打开全局外观设置' },
   ])
 
+  // 菜单只在已载入且未保存中的画布上出现。
+  function canOpen() {
+    return Boolean(options.user.value && options.data.value && !options.loading.value && !options.saving.value)
+  }
+
+  // 按坐标直接记录菜单目标，供触屏长按判定完成后调用。
+  function openContextAt(x: number, y: number, node: WidgetNode | null = null) {
+    if (!canOpen()) return
+    contextNode.value = node
+    contextPosition.value = { x, y }
+  }
+
   // 输入框保留原生菜单，其他位置记录右键目标。
   function openContext(event: MouseEvent, node: WidgetNode | null = null) {
-    if (!options.user.value || !options.data.value || options.loading.value || options.saving.value || (event.target as HTMLElement).closest('input, textarea, select, [role=dialog], .modal-backdrop')) return
+    if (!canOpen() || (event.target as HTMLElement).closest('input, textarea, select, [role=dialog], .modal-backdrop')) return
     event.preventDefault()
     event.stopPropagation()
-    contextNode.value = node
-    contextPosition.value = { x: event.clientX, y: event.clientY }
+    openContextAt(event.clientX, event.clientY, node)
   }
 
   // 操作使用打开菜单时的目标，避免误改其他组件。
@@ -73,6 +84,7 @@ export function useCanvasContextMenu(options: {
     contextNode,
     contextItems,
     openContext,
+    openContextAt,
     contextAction,
   }
 }

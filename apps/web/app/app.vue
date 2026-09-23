@@ -131,6 +131,8 @@ html.dark {
 
 html {
   scrollbar-gutter: auto;
+  /* 触屏按住不出现浏览器默认高亮遮罩，交互反馈全部由组件自身提供 */
+  -webkit-tap-highlight-color: transparent;
 }
 
 body {
@@ -162,8 +164,11 @@ body {
   }
 }
 
-/* 壁纸、暗化和设置页主题遮罩依次叠放，主页保留壁纸原貌不设额外遮罩。 */
-.wallpaper-layer, .wallpaper-shade, .wallpaper-tint { position: fixed; inset: 0; width: 100%; height: 100%; min-height: 100dvh; pointer-events: none; }
+/* 壁纸、暗化和设置页主题遮罩依次叠放，主页保留壁纸原貌不设额外遮罩。
+   尺寸固定用 vw/vh，不用 100%/dvh：只要窗口尺寸没变，vw/vh 就恒定，
+   不会因为拖动组件把页面撑高导致纵向滚动条出现（视口变窄），也不会因为移动端地址栏
+   收放让 dvh 变化，从而避免 cover 背景被重新缩放——看起来就像"一拖动壁纸就被拉伸"。 */
+.wallpaper-layer, .wallpaper-shade, .wallpaper-tint { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; pointer-events: none; }
 .wallpaper-layer { z-index: -3; transform: translateZ(0); backface-visibility: hidden; }
 .wallpaper-shade { z-index: -2; }
 .wallpaper-tint { z-index: -1; background: var(--lh-bg); opacity: .96; }

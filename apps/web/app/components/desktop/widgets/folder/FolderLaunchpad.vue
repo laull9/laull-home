@@ -73,6 +73,7 @@ function handleRootClick(event: MouseEvent) {
         class="launchpad-item"
         :title="item.title"
         data-folder-item="true"
+        :data-bookmark-id="item.id"
         draggable="true"
         @dragstart="handleItemDragStart($event, item)"
         @click.stop="onItemClick($event, item)"
