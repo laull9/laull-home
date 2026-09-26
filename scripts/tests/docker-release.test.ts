@@ -29,6 +29,7 @@ test('Dockerfile 生产镜像规范：多阶段构建、权限隔离与健康检
   // 5. 验证健康检查指令与启动命令。
   expect(content).toContain('HEALTHCHECK')
   expect(content).toContain('/api/v1/health')
+  expect(content).toContain('AbortSignal.timeout')
   expect(content).toContain('CMD ["bun", "run", "start"]')
 })
 
