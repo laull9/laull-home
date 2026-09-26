@@ -47,3 +47,13 @@ test('前端支持后端内部地址自动推导与无配置转发', () => {
   expect(proxyContent).not.toContain("!path.startsWith('/api/v1/')")
 })
 
+// 校验前端 API 代理具备客户端断开联动机制，防止 SSE 与长连接泄漏导致事件循环挂死。
+test('前端 API 代理联动客户端断开信号防止长连接泄漏', () => {
+  const proxyPath = resolve(projectRoot, 'apps/web/server/api/[...path].ts')
+  const proxyContent = readFileSync(proxyPath, 'utf-8')
+  // 校验必须监听客户端关闭事件并传递 AbortSignal。
+  expect(proxyContent).toContain('AbortController')
+  expect(proxyContent).toContain("res.once('close'")
+  expect(proxyContent).toContain('signal: controller.signal')
+})
+
