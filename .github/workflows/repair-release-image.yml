@@ -61,11 +61,11 @@ jobs:
       - name: 检查运行镜像
         run: |
           docker build -f Dockerfile.release -t laull-home:repair ./source
-          docker run --rm -d --name laull-home-repair -p 127.0.0.1:18080:3000 \
-            -e LAULL_HOME_ORIGIN=http://127.0.0.1:18080 laull-home:repair
-          trap 'docker rm -f laull-home-repair' EXIT
+          docker run -d --name laull-home-repair -p 127.0.0.1:18080:3000 \
+            -e LAULL_HOME_ORIGIN=https://home.test laull-home:repair
+          trap 'docker rm -f laull-home-repair >/dev/null 2>&1 || true' EXIT
           for attempt in {1..30}; do
-            if curl --silent --show-error --fail http://127.0.0.1:18080/api/v1/health; then
+            if curl --silent --fail http://127.0.0.1:18080/api/v1/health; then
               exit 0
             fi
             sleep 1

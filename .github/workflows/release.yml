@@ -94,6 +94,20 @@ jobs:
           cd ..
           tar -xzf "release/laull-home-${RELEASE_TAG}.tar.gz" --strip-components=1
           test "$(jq -r .commit release.json)" = "$GITHUB_SHA"
+      - name: 检查运行镜像
+        run: |
+          docker build -f Dockerfile.release -t laull-home:release .
+          docker run -d --name laull-home-release -p 127.0.0.1:18080:3000 \
+            -e LAULL_HOME_ORIGIN=https://home.test laull-home:release
+          trap 'docker rm -f laull-home-release >/dev/null 2>&1 || true' EXIT
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:18080/api/v1/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs laull-home-release
+          exit 1
       - name: 配置 Docker Buildx
         uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c2ce06100226 # v3
       - name: 登录 GitHub Packages 容器镜像库
