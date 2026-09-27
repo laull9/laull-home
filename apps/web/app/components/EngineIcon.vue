@@ -179,7 +179,7 @@ function handleImgLoad(event: Event) {
       alt=""
       draggable="false"
       loading="lazy"
-      crossorigin="anonymous"
+      referrerpolicy="no-referrer"
       class="engine-img"
       @load="handleImgLoad"
       @error="imgFailed = true"

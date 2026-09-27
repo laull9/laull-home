@@ -1,3 +1,4 @@
+import { discoverManifestIcons, discoverPageIcons } from "./discovery"
 import { createHash } from "node:crypto"
 import { lookup } from "node:dns/promises"
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs"
@@ -53,7 +54,7 @@ export async function assertSafeOutboundUrl(targetUrl: string): Promise<{ url: U
   } catch {
     throw new FaviconError(400, "目标地址格式无效")
   }
-  if (!["http:", "https:"].includes(url.protocol)) {
+  if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) {
     throw new FaviconError(400, "仅允许请求 http 或 https 协议")
   }
   if (isPrivateIp(url.hostname)) {
@@ -139,14 +140,14 @@ export function detectIconFormat(buffer: Buffer): { ext: string; mime: string } 
 }
 
 // 创建受控 Favicon 探测与缓存服务。
-export function createFaviconService(dataDir: string) {
+export function createFaviconService(dataDir: string, validateUrl = assertSafeOutboundUrl) {
   const iconsDir = resolve(dataDir, "icons")
   if (!existsSync(iconsDir)) mkdirSync(iconsDir, { recursive: true })
   const iconExtensions = new Set([".png", ".ico", ".svg", ".webp", ".jpg", ".jpeg", ".gif"])
   const inFlight = new Map<string, Promise<{ iconUrl: string; candidateUrls?: string[]; svgUrl?: string }>>()
   const failedAt = new Map<string, number>()
 
-  // 查找域名最近写入的缓存，兼容旧版按域名哈希命名的文件。
+  // 查找站点地址最近写入的缓存。
   function findCachedIcon(domainHash: string): string {
     const names = readdirSync(iconsDir).filter((name) => {
       const ext = extname(name).toLowerCase()
@@ -156,7 +157,7 @@ export function createFaviconService(dataDir: string) {
     return names[0] ?? ""
   }
 
-  // 以域名和内容双哈希写入不可变文件，刷新后获得新地址且旧书签仍可访问。
+  // 以站点地址和内容双哈希写入不可变文件，刷新后获得新地址且旧书签仍可访问。
   function saveFetchedIcon(domainHash: string, buffer: Buffer): string {
     const { ext } = detectIconFormat(buffer)
     const contentHash = createHash("sha256").update(buffer).digest("hex").slice(0, 12)
@@ -167,12 +168,12 @@ export function createFaviconService(dataDir: string) {
   }
 
   // 安全请求远程资源并限制体积、重定向与超时时间。
-  async function fetchWithSafeLimits(targetUrl: string, maxRedirects = 3, timeoutMs = 5000): Promise<{ buffer: Buffer, contentType: string }> {
+  async function fetchWithSafeLimits(targetUrl: string, maxRedirects = 3, timeoutMs = 5000): Promise<{ buffer: Buffer, contentType: string, finalUrl: string }> {
     let currentUrl = targetUrl
     let redirects = 0
 
     while (redirects <= maxRedirects) {
-      const { url, resolvedIp } = await assertSafeOutboundUrl(currentUrl)
+      const { url, resolvedIp } = await validateUrl(currentUrl)
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), timeoutMs)
 
@@ -219,6 +220,7 @@ export function createFaviconService(dataDir: string) {
         return {
           buffer: Buffer.from(arrayBuffer),
           contentType,
+          finalUrl: currentUrl,
         }
       } finally {
         clearTimeout(timer)
@@ -226,31 +228,6 @@ export function createFaviconService(dataDir: string) {
     }
 
     throw new FaviconError(400, "重定向次数过多")
-  }
-
-  // 从 HTML 中正则提取常见图标地址。
-  function extractIconsFromHtml(html: string, baseUrl: string): string[] {
-    const candidates: string[] = []
-    const linkRegex = /<link\b[^>]*>/gi
-
-    let match: RegExpExecArray | null
-    while ((match = linkRegex.exec(html)) !== null) {
-      const tag = match[0]
-      const relMatch = /rel=["']([^"']+)["']/i.exec(tag)
-      if (!relMatch) continue
-      const rel = relMatch[1]?.toLowerCase() ?? ""
-      if (!rel.includes("icon")) continue
-
-      const hrefMatch = /href=["']([^"']+)["']/i.exec(tag)
-      if (hrefMatch?.[1]) {
-        try {
-          candidates.push(new URL(hrefMatch[1], baseUrl).toString())
-        } catch {
-          // 忽略非法相对地址
-        }
-      }
-    }
-    return candidates
   }
 
   // 并发探测一组候选，首个通过格式校验的图片立即返回。
@@ -278,7 +255,7 @@ export function createFaviconService(dataDir: string) {
 
   // 探测站点声明、常见根路径与公共镜像，并将结果持久化到本地。
   async function performFetch(safeUrl: URL, domainHash: string, forceRefresh: boolean) {
-    const domain = safeUrl.hostname.toLowerCase()
+    const domain = safeUrl.href
     const cached = findCachedIcon(domainHash)
     if (cached && !forceRefresh) return { iconUrl: "/api/v1/icons/" + cached }
     if (!forceRefresh && Date.now() - (failedAt.get(domain) ?? 0) < 5 * 60_000) {
@@ -286,28 +263,42 @@ export function createFaviconService(dataDir: string) {
     }
 
     const directCandidates: string[] = []
+    let pageUrl = safeUrl
     try {
       const pageResult = await fetchWithSafeLimits(safeUrl.toString(), 2, 2200)
+      pageUrl = new URL(pageResult.finalUrl)
       if (pageResult.contentType.includes("text/html")) {
-        directCandidates.push(...extractIconsFromHtml(pageResult.buffer.toString("utf-8"), safeUrl.toString()))
+        const discovered = discoverPageIcons(pageResult.buffer.toString("utf-8"), pageResult.finalUrl)
+        directCandidates.push(...discovered.icons)
+        const manifests = await Promise.all(discovered.manifests.map(async (url) => {
+          try {
+            const result = await fetchWithSafeLimits(url, 2, 2200)
+            return discoverManifestIcons(result.buffer.toString("utf-8"), result.finalUrl)
+          } catch {
+            return []
+          }
+        }))
+        directCandidates.push(...manifests.flat())
       }
     } catch {
       // 页面本身不可达时继续尝试标准路径和公共镜像。
     }
     for (const path of ["/favicon.ico", "/favicon.svg", "/favicon.png", "/apple-touch-icon.png"]) {
-      directCandidates.push(new URL(path, safeUrl.origin).toString())
+      directCandidates.push(new URL(path, pageUrl.origin).toString())
+      directCandidates.push(new URL(`.${path}`, pageUrl).toString())
     }
 
+    const hostname = safeUrl.hostname.toLowerCase()
     const publicCandidates = [
-      `https://favicon.im/${domain}?larger=true`,
-      `https://www.google.com/s2/favicons?domain=${encodeURIComponent(domain)}&sz=128`,
-      `https://icon.horse/icon/${domain}`,
-      `https://unavatar.io/${domain}`,
+      `https://favicon.im/${hostname}?larger=true`,
+      `https://www.google.com/s2/favicons?domain=${encodeURIComponent(hostname)}&sz=128`,
+      `https://icon.horse/icon/${hostname}`,
+      `https://unavatar.io/${hostname}`,
     ]
-    if (domain.startsWith("www.")) publicCandidates.push(`https://favicon.im/${domain.slice(4)}?larger=true`)
+    if (hostname.startsWith("www.")) publicCandidates.push(`https://favicon.im/${hostname.slice(4)}?larger=true`)
     const candidateUrls = [...new Set([...directCandidates, ...publicCandidates])]
 
-    const directBuffer = await fetchFirstIcon([...new Set(directCandidates)].slice(0, 8), 2200)
+    const directBuffer = await fetchFirstIcon([...new Set(directCandidates)].slice(0, 24), 2200)
     const fallbackBuffer = directBuffer ?? await fetchFirstIcon(publicCandidates, 3000)
     if (fallbackBuffer) {
       failedAt.delete(domain)
@@ -352,10 +343,11 @@ export function createFaviconService(dataDir: string) {
       return { iconUrl: "/api/v1/icons/" + filename }
     },
 
-    // 探测站点图标或返回已有缓存，同域并发请求复用同一任务。
+    // 探测站点图标或返回已有缓存，同地址并发请求复用同一任务。
     async fetchAndCache(siteUrl: string, forceRefresh = false): Promise<{ iconUrl: string; candidateUrls?: string[]; svgUrl?: string }> {
-      const { url: safeUrl } = await assertSafeOutboundUrl(siteUrl)
-      const domain = safeUrl.hostname.toLowerCase()
+      const { url: safeUrl } = await validateUrl(siteUrl)
+      safeUrl.hash = ""
+      const domain = safeUrl.href
       const domainHash = createHash("sha256").update(domain).digest("hex").slice(0, 16)
       if (!forceRefresh) {
         const running = inFlight.get(domain)

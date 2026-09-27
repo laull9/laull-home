@@ -41,7 +41,11 @@ const { data, error } = await $api.settings.get()
 | PUT | /search/engines/:id | Session | `{ name, urlTemplate, bang, isDefault, sortOrder }` → `{ engine }` |
 | DELETE | /search/engines/:id | Session | `{ success: true }`，至少保留一个默认引擎 |
 | GET | /icons/:filename | 公开 | 返回已缓存图标的二进制响应及 Content-Type |
-| POST | /favicon/fetch | Session | `{ url }` → `{ iconUrl }`，受控出站探测并缓存图标 |
+| POST | /favicon/fetch | Session | `{ url, forceRefresh? }` → `{ iconUrl, candidateUrls?, svgUrl? }`，受控出站探测并缓存图标 |
+
+图标探测读取页面声明、`base` 和 Web App Manifest，按重定向后的地址解析相对路径，再尝试常见图标路径和公共图标源。缓存按完整站点地址（忽略片段）隔离，区分端口和子路径；强制刷新失败时保留旧缓存，旧书签中的缓存文件继续可用。相同图片在不同站点地址下可产生独立缓存文件，目前不自动删除仍可能被书签引用的文件。
+
+服务端逐次检查资源及重定向地址，禁止内网请求。服务端无法获取时，浏览器分批验证图片直链；可跨域读取的图片尝试上传缓存，无法读取但可以显示的图片保留远程地址。直链依赖浏览器网络、HTTPS 混合内容策略和目标站点权限；交互验证页面本身不能当作图标。没有有效图片时返回空结果。
 
 认证相关 mutation 通过 `useAuth()` 在浏览器调用；SSR 可以读取 `/auth/me` 和 `/settings`，不会在响应中设置登录 Cookie。SSR 客户端按请求创建，避免 Cookie 串用。
 

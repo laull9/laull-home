@@ -34,9 +34,14 @@ function normalizeSource(value: string): string {
   return ''
 }
 
-// 当前书签站点根地址作为恢复缓存键。
+// 完整站点地址作为恢复缓存键，区分同域的子路径应用。
 const siteOrigin = computed(() => {
-  try { return props.siteUrl ? new URL(props.siteUrl).origin : '' } catch { return '' }
+  try {
+    if (!props.siteUrl) return ''
+    const url = new URL(props.siteUrl)
+    url.hash = ''
+    return url.href
+  } catch { return '' }
 })
 
 // 原始图标优先，失败后切换到站点恢复缓存。

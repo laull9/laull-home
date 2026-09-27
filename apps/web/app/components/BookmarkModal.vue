@@ -199,6 +199,7 @@ async function handleSubmit() {
             v-if="formIconUrl"
             :src="formIconUrl"
             alt="预览"
+            referrerpolicy="no-referrer"
             class="icon-preview"
             @error="formIconUrl = ''"
           >
