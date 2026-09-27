@@ -52,9 +52,9 @@ git push origin v0.0.1
 
 只有用户明确要求发布时才执行这些命令。创建标签不需要切换离开 dev。不能把 tag 推到尚未进入 main 的提交。
 
-Release 生成 `laull-home-vX.Y.Z.tar.gz` 和对应 `.sha256`，包含 Web `.output`、Server `dist`、配置示例、文档和 `release.json`。同时通过 Docker Buildx 构建 `linux/amd64` 与 `linux/arm64` 双架构容器镜像并推送到 GitHub Packages（`ghcr.io/laull9/laull-home`）。
+Release 生成 `laull-home-vX.Y.Z.tar.gz` 和对应 `.sha256`，包含 Web `.output`、Server `dist`、配置示例、文档和 `release.json`。Docker 任务校验并解压同一次构建的归档，再把运行产物放进 `linux/amd64` 与 `linux/arm64` 镜像，推送到 GitHub Packages（`ghcr.io/laull9/laull-home`）。Nuxt 只在构建任务中运行一次。
 
-同一标签重复发布会失败，禁止覆盖已有 Release；网络中断后先检查 GitHub 上的实际状态，不盲目重建标签或删除资产。新版本的修复走 dev 和新标签。
+同一标签重复发布会失败，禁止覆盖已有 Release；网络中断后先检查 GitHub 上的实际状态，不盲目重建标签或删除资产。如果归档已经发布、只有容器镜像失败，可从默认分支手动运行 `Repair release image`，输入原标签。该任务校验现有归档、标签提交和版本，启动容器检查健康接口后补发同版本镜像，不更改 Release 归档和 Git 标签。应用代码的修复走 dev 和新标签。
 
 ## 使用发布包
 
