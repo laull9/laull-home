@@ -1,3 +1,4 @@
+import { findBrowserIcon, persistBrowserIcon } from "../utils/favicon"
 import type {
   Bookmark,
   BookmarkGroup,
@@ -140,89 +141,41 @@ export function useBookmarks() {
     return res.data?.iconUrl ?? ""
   }
 
-  // 探测站点 Favicon 图标并缓存：优先使用 Favicon.im，并在客户端环境嗅探下载与自动上传保存。
+  // 服务端缓存优先，网络或跨域受限时用浏览器验证图片直链。
   async function fetchFavicon(targetUrl: string, forceRefresh = false): Promise<string> {
-    if (!targetUrl) return ""
-    let origin = ""
-    let hostname = ""
+    let site: URL
     try {
-      const parsed = new URL(targetUrl)
-      origin = parsed.origin
-      hostname = parsed.hostname.toLowerCase()
+      site = new URL(targetUrl)
+      if (!["http:", "https:"].includes(site.protocol) || site.username || site.password) return ""
     } catch {
-      // 忽略非法 URL 格式
+      return ""
     }
-
-    const isPrivate = !hostname || hostname === "localhost" || hostname === "127.0.0.1" ||
-      hostname.endsWith(".local") || hostname.endsWith(".lan") ||
-      /^192\.168\./.test(hostname) || /^10\./.test(hostname) || /^172\.(1[6-9]|2[0-9]|3[0-1])\./.test(hostname)
-
-    // 1. 整理候选嗅探地址列表：公网站点优先使用 Favicon.im 高清接口
     const candidates: string[] = []
-    if (hostname && !isPrivate) {
-      candidates.push(`https://favicon.im/${hostname}?larger=true`)
-      candidates.push(`https://favicon.im/${hostname}`)
-      if (hostname.startsWith("www.")) {
-        candidates.push(`https://favicon.im/${hostname.slice(4)}?larger=true`)
-      }
-      candidates.push(`https://icon.horse/icon/${hostname}`)
-      candidates.push(`https://unavatar.io/${hostname}`)
-    }
-    if (origin) {
-      candidates.push(
-        new URL("/favicon.ico", origin).toString(),
-        new URL("/favicon.png", origin).toString(),
-        new URL("/favicon.svg", origin).toString(),
-        new URL("/apple-touch-icon.png", origin).toString(),
-      )
-    }
-
-    // 2. 向服务端请求解析 HTML 页面声明的候选地址或读取已有缓存
     try {
       const res = await $api.favicon.fetch.post({ url: targetUrl, forceRefresh })
-      if (res.data?.iconUrl) {
-        return res.data.iconUrl
-      }
-      if (res.data?.candidateUrls) {
-        for (const u of res.data.candidateUrls) {
-          if (!candidates.includes(u)) {
-            // Favicon.im 始终保持最前，其余地址按顺序追加
-            if (u.includes("favicon.im")) {
-              candidates.unshift(u)
-            } else {
-              candidates.push(u)
-            }
-          }
-        }
-      } else if (res.data?.svgUrl && !candidates.includes(res.data.svgUrl)) {
-        candidates.push(res.data.svgUrl)
-      }
+      if (res.data?.iconUrl) return res.data.iconUrl
+      candidates.push(...(res.data?.candidateUrls ?? []))
+      if (res.data?.svgUrl) candidates.push(res.data.svgUrl)
     } catch {
-      // 若服务端解析失败（如境外站点无代理或内网拦截），由客户端依靠浏览器网络直探
+      // 浏览器可访问的站点未必能由服务器访问。
     }
-
-    // 3. 客户端依次在浏览器端嗅探下载候选图标并自动上传
-    for (const probeUrl of candidates) {
-      try {
-        const controller = new AbortController()
-        const timer = setTimeout(() => controller.abort(), 4000)
-        const probeRes = await fetch(probeUrl, { signal: controller.signal })
-        clearTimeout(timer)
-
-        if (probeRes.ok) {
-          const blob = await probeRes.blob()
-          // 过滤空文件及误把错误页 HTML 当成图片的情况
-          if (blob.size > 0 && !blob.type.includes("text/html")) {
-            const uploaded = await uploadFavicon(blob)
-            if (uploaded) return uploaded
-          }
-        }
-      } catch {
-        // 忽略跨域阻断、超时或单个地址异常
-      }
+    const direct: string[] = []
+    for (const path of ["favicon.ico", "favicon.svg", "favicon.png", "apple-touch-icon.png"]) {
+      direct.push(new URL(path, site).href, new URL('/' + path, site.origin).href)
     }
-
-    return ""
+    // 已发现的声明优先；公共图标源放在本站路径之后。
+    const providers = new Set(['favicon.im', 'www.google.com', 'icon.horse', 'unavatar.io'])
+    const declared = candidates.filter(url => {
+      try { return !providers.has(new URL(url).hostname) } catch { return false }
+    })
+    const publicUrls = candidates.filter(url => !declared.includes(url))
+    const host = site.hostname.toLowerCase()
+    const privateHost = !host.includes('.') || host.includes(':') || /^(?:127|10|0|192\.168|169\.254|172\.(?:1[6-9]|2\d|3[01]))\./.test(host) || /\.(?:local|lan|localhost)$/.test(host)
+    if (!privateHost) {
+      publicUrls.push(`https://favicon.im/${host}?larger=true`, `https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128`, `https://icon.horse/icon/${host}`)
+    }
+    const icon = await findBrowserIcon([...declared, ...direct, ...publicUrls])
+    return persistBrowserIcon(icon, uploadFavicon)
   }
 
   return {
